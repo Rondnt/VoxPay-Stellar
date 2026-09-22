@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+target/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+
+# AI models (downloaded separately, not versioned)
+ai-service/models/*
+!ai-service/models/.gitkeep
+
+# Rust / Soroban
+contracts/**/target/
+contracts/**/.soroban/
+Cargo.lock
+
+# Prisma auto-installed AI agent skills (regenerable via `npx prisma init`/`prisma generate`)
+backend/.agents/
+backend/.claude/
+backend/.windsurf/
+backend/skills-lock.json
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Misc
+*.tsbuildinfo
+next-env.d.ts

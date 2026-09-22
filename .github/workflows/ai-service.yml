@@ -1,0 +1,31 @@
+name: ai-service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ai-service/**"
+      - ".github/workflows/ai-service.yml"
+  pull_request:
+    paths:
+      - "ai-service/**"
+      - ".github/workflows/ai-service.yml"
+
+defaults:
+  run:
+    working-directory: ai-service
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ai-service/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: pip install ruff pytest
+      - run: ruff check .
+      - run: pytest

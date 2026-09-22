@@ -1,0 +1,32 @@
+root ::= intent-object
+
+intent-object ::= "{" ws
+  "\"intent\":" ws intent-value "," ws
+  "\"amount\":" ws number-or-null "," ws
+  "\"asset\":" ws string-or-null "," ws
+  "\"order_ref\":" ws string-or-null "," ws
+  "\"splits\":" ws splits-array "," ws
+  "\"confidence\":" ws confidence
+ws "}"
+
+intent-value ::= "\"create_order\"" | "\"get_order_status\"" | "\"get_sales_summary\"" | "\"unknown\""
+
+splits-array ::= "[]" | "[" ws split-object (ws "," ws split-object)* ws "]"
+
+split-object ::= "{" ws
+  "\"recipient_alias\":" ws string "," ws
+  "\"amount\":" ws number "," ws
+  "\"type\":" ws split-type
+ws "}"
+
+split-type ::= "\"tip\"" | "\"share\""
+
+string-or-null ::= string | "null"
+number-or-null ::= number | "null"
+confidence ::= "0." digit digit? | "1.0" | "1" | "0"
+
+string ::= "\"" char* "\""
+char ::= [^"\\] | "\\" .
+number ::= "-"? digit+ ("." digit+)?
+digit ::= [0-9]
+ws ::= [ \t\n]*

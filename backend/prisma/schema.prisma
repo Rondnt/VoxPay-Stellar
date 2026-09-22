@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  OWNER
+  CASHIER
+
+  @@map("user_role")
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+
+  @@map("order_status")
+}
+
+enum VoiceCommandStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  UNKNOWN
+
+  @@map("voice_command_status")
+}
+
+enum ChainEventType {
+  ORDER_CREATED
+  ORDER_PAID
+  ORDER_CANCELLED
+
+  @@map("chain_event_type")
+}
+
+model Tenant {
+  id         String   @id @default(cuid())
+  name       String
+  plan       String   @default("free")
+  apiKeyHash String   @unique @map("api_key_hash")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  users             User[]
+  merchants         Merchant[]
+  idempotencyKeys   IdempotencyKey[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  email        String
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(CASHIER)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model Merchant {
+  id                  String  @id @default(cuid())
+  tenantId            String  @map("tenant_id")
+  stellarAddress      String  @map("stellar_address")
+  operatorAuthorized  Boolean @default(false) @map("operator_authorized")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  recipients    Recipient[]
+  voiceCommands VoiceCommand[]
+  orders        Order[]
+
+  @@index([tenantId])
+  @@map("merchants")
+}
+
+model Recipient {
+  id             String @id @default(cuid())
+  merchantId     String @map("merchant_id")
+  alias          String
+  stellarAddress String @map("stellar_address")
+  defaultShare   Decimal? @map("default_share")
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@unique([merchantId, alias])
+  @@map("recipients")
+}
+
+model VoiceCommand {
+  id         String              @id @default(cuid())
+  merchantId String              @map("merchant_id")
+  transcript String
+  intentJson Json                @map("intent_json")
+  status     VoiceCommandStatus  @default(PENDING)
+  createdAt  DateTime            @default(now()) @map("created_at")
+
+  merchant Merchant @relation(fields: [merchantId], references: [id])
+
+  @@index([merchantId])
+  @@map("voice_commands")
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  merchantId    String      @map("merchant_id")
+  orderRef      String      @map("order_ref")
+  amount        Decimal
+  splitsJson    Json        @map("splits_json")
+  status        OrderStatus @default(PENDING)
+  createTxHash  String?     @map("create_tx_hash")
+  payTxHash     String?     @map("pay_tx_hash")
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  merchant    Merchant     @relation(fields: [merchantId], references: [id])
+  chainEvents ChainEvent[]
+
+  @@unique([merchantId, orderRef])
+  @@map("orders")
+}
+
+model ChainEvent {
+  id       String         @id @default(cuid())
+  type     ChainEventType
+  orderId  String         @map("order_id")
+  ledger   BigInt
+  txHash   String         @map("tx_hash")
+  payload  Json
+  indexedAt DateTime      @default(now()) @map("indexed_at")
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@unique([txHash, id])
+  @@index([orderId])
+  @@map("chain_events")
+}
+
+model IndexerCursor {
+  id         String @id @default("default")
+  lastLedger BigInt @map("last_ledger")
+
+  @@map("indexer_cursor")
+}
+
+model IdempotencyKey {
+  key       String   @id
+  tenantId  String   @map("tenant_id")
+  response  Json
+  expiresAt DateTime @map("expires_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("idempotency_keys")
+}
