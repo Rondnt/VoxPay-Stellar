@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator.js';
 import { SubmitOperatorAuthDto } from './dto/submit-operator-auth.dto.js';
@@ -15,12 +15,14 @@ export class MerchantsController {
   }
 
   @Post('operator/tx')
+  @HttpCode(HttpStatus.OK)
   async buildOperatorTx(@CurrentTenant() tenantId: string) {
     const xdr = await this.merchants.buildOperatorAuthorizationTx(tenantId);
     return { xdr };
   }
 
   @Post('operator/submit')
+  @HttpCode(HttpStatus.OK)
   submitOperatorTx(@CurrentTenant() tenantId: string, @Body() dto: SubmitOperatorAuthDto) {
     return this.merchants.submitOperatorAuthorization(tenantId, dto.signedXdr);
   }

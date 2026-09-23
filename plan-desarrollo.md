@@ -37,18 +37,25 @@ actualiza a medida que avanza cada etapa.
   CLI en este entorno). Detalle: [Fase 3](#fase-3--contrato-soroban-build-test-y-deploy).
 - **ai-service/**: FastAPI completo (`/health /transcribe /interpret`). No verificado en runtime (falta
   modelo GGUF real). Contrato: [Fase 1 → Etapa 1.7](#etapa-17--módulo-voice-agent-y-cola-voice-commands).
-- **backend/**: NestJS 12 + Prisma 7 + TS 6, ESM (`.js` en imports relativos, obligatorio por
+- **backend/**: NestJS 12 + TS 6, ESM (`.js` en imports relativos, obligatorio por
   `moduleResolution: nodenext` — todo import relativo entre archivos `.ts` propios debe terminar en
-  `.js`). Detalle módulo por módulo: [Fase 1](#fase-1--backend-módulos-de-dominio-y-contratos).
+  `.js`). `npm run build`/`lint` verdes con **Fase 1 completa** (Etapas 1.1–1.11), pero escrita sobre
+  Prisma 7 + PostgreSQL. **Decisión nueva**: la base de datos pasa a **Firebase Firestore** — Prisma no
+  soporta Firestore como datasource, así que esto no es un cambio de driver sino un reemplazo completo
+  de la capa de datos. El código de Postgres sigue siendo lo que hoy compila y corre; la migración a
+  Firestore es trabajo pendiente, ver [Etapa 1.12](#etapa-112--migración-postgresqlprisma--firestore).
+  Detalle módulo por módulo: [Fase 1](#fase-1--backend-módulos-de-dominio-y-contratos).
 
 ## Restricciones de entorno detectadas
 
 - No hay `cargo`, `rustc` ni `stellar` CLI en este entorno → el contrato no se puede compilar, testear ni
   desplegar a testnet desde aquí (Fase 3 corre en la máquina del usuario o en CI).
 - `ai-service` necesita un modelo GGUF real (Qwen 3B afinado) para probar `/interpret` de punta a punta.
-- Next.js 16 y Prisma 7 tienen breaking changes fuertes respecto a versiones anteriores (`proxy.ts` en
-  vez de `middleware.ts`; generator/config/adapter nuevos en Prisma 7 con driver adapter obligatorio —
-  ver Etapa 1.1).
+- Next.js 16 tiene breaking changes fuertes respecto a versiones anteriores (`proxy.ts` en vez de
+  `middleware.ts`).
+- El emulador de Firestore (`firebase emulators:start`) corre sobre una JVM → hace falta **Java (JRE
+  11+)** instalado en el entorno local además de Node, algo que Postgres/Docker no requerían. Ver
+  Etapa 1.12 y Etapa 2.1.
 
 ---
 
@@ -56,7 +63,11 @@ actualiza a medida que avanza cada etapa.
 
 Objetivo de la fase: `npm run build` y `npm run lint` verdes en `backend/`, todos los contratos de esta
 fase implementados y wireados en `app.module.ts` (proceso API) / `worker.module.ts` (proceso worker,
-nuevo). Se divide en 11 etapas, en orden de dependencia (cada etapa asume que las anteriores ya existen).
+nuevo), corriendo sobre Firestore. Se divide en 12 etapas, en orden de dependencia (cada etapa asume que
+las anteriores ya existen). **Las Etapas 1.1–1.11 ya están completas y compilando, pero escritas sobre
+Prisma + PostgreSQL** (decisión original, ver arquitectura). Tras la decisión de mover la base de datos a
+Firestore, cada una de esas etapas describe abajo tanto lo que hoy corre (Prisma) como el diseño target en
+Firestore que lo reemplaza; la Etapa 1.12 es el checklist concreto de la migración.
 
 ### Etapa 1.1 — Convenciones generales y modelo de datos
 
@@ -75,13 +86,8 @@ schema de datos listo.
 - **Multi-tenancy**: `TenantGuard` (`backend/src/common/guards/tenant.guard.ts`) resuelve
   `request.tenantId` desde `request.user.tenantId` (seteado por `JwtStrategy.validate`); los
   controllers lo leen con `@CurrentTenant()` (`backend/src/common/decorators/current-tenant.decorator.ts`).
-  Toda consulta a Postgres debe filtrar por el `merchantId` que pertenece a ese `tenantId` (gap
-  pendiente, ver Etapa 1.10).
-  **Bug detectado en esta revisión**: `TenantGuard.canActivate` hoy no chequea `@Public()` (a diferencia
-  de `JwtAuthGuard`, que sí lo hace vía `Reflector`) — si se registra como `APP_GUARD` global en la
-  Etapa 1.11 tal como estaba planeado, rompe con `401 Missing tenant context` **todas** las rutas
-  públicas, incluido `POST /v1/auth/login` (nadie podría loguearse, porque en ese request todavía no
-  existe `request.user`). Fix obligatorio antes de la Etapa 1.11, ver Etapa 1.10.
+  Toda consulta a Postgres debe filtrar por el `merchantId` que pertenece a ese `tenantId` (resuelto en
+  Etapa 1.10 para `GET /v1/orders/:id`).
 - **Content-Type**: `application/json` salvo `POST /v1/voice/commands` (`multipart/form-data`, campo
   `audio`).
 - **Formato de error** (`AllExceptionsFilter`, `backend/src/common/filters/all-exceptions.filter.ts`):
@@ -94,7 +100,8 @@ schema de datos listo.
   `"30"`).
 - **IDs**: `cuid()` strings. **Paginación**: ninguna todavía.
 
-**Modelo de datos** — implementación exacta en `backend/prisma/schema.prisma`:
+**Modelo de datos — lo que corre hoy (Prisma + PostgreSQL)**, implementación exacta en
+`backend/prisma/schema.prisma`:
 
 ```prisma
 generator client {
@@ -107,12 +114,10 @@ datasource db {
 }
 ```
 
-El cliente generado vive en `backend/generated/prisma/` (gitignored). Dos puntos de import distintos, con
-la misma profundidad relativa (`../../../generated/prisma/client.js`) porque tanto
-`src/infrastructure/prisma/` como `src/modules/<módulo>/` están 3 niveles debajo de `backend/`:
-`PrismaService` importa solo `PrismaClient`; los repositories (`OrdersRepository`,
-`RecipientsRepository`, etc.) importan `type { Prisma }` para los tipos `Prisma.*UncheckedCreateInput`/
-`UncheckedUpdateInput`. Prisma 7 exige un **driver adapter** explícito — se usa `@prisma/adapter-pg`:
+El cliente generado vive en `backend/generated/prisma/` (gitignored). `PrismaService` importa solo
+`PrismaClient`; los repositories (`OrdersRepository`, `RecipientsRepository`, etc.) importan
+`type { Prisma }` para los tipos `Prisma.*UncheckedCreateInput`/`UncheckedUpdateInput`. Prisma 7 exige un
+**driver adapter** explícito — se usa `@prisma/adapter-pg`:
 
 ```ts
 // backend/src/infrastructure/prisma/prisma.service.ts
@@ -135,13 +140,63 @@ instalación de Prisma 7.10 — el CLI lo detecta automáticamente, confirmado c
 | `IndexerCursor` | `id="default", lastLedger(BigInt)` | punto de reanudación del indexador |
 | `IdempotencyKey` | `key, tenantId, response, expiresAt` | no usado todavía por ningún endpoint |
 
-`splitsJson` de `Order` almacena `{ recipientAlias, stellarAddress, amount }[]` (resuelto al crear la
-orden, ver Etapa 1.5). `intentJson` de `VoiceCommand` almacena la forma cruda que devuelve Raven (ver
-Etapa 1.7).
+`splitsJson` de `Order` almacena `{ recipientAlias, stellarAddress, amount }[]`. `intentJson` de
+`VoiceCommand` almacena la forma cruda que devuelve Raven.
 
-**Verificación de la etapa**: `npx prisma generate` corre sin errores; `generated/prisma/client.ts`
-expone los 9 modelos y `Prisma.RecipientUncheckedCreateInput`/`Prisma.OrderUncheckedCreateInput` (usados
-en las Etapas 1.4/1.5).
+**Verificación (Prisma, ya cumplida)**: `npx prisma generate` corre sin errores; el cliente expone los 9
+modelos y `Prisma.RecipientUncheckedCreateInput`/`Prisma.OrderUncheckedCreateInput`.
+
+---
+
+**Modelo de datos — target (Firestore)**: reemplaza por completo lo de arriba (Prisma no tiene datasource
+para Firestore; no es un cambio de driver, es otra capa de datos). Diseño por colección, pensado para que
+cada `findByX` que hoy es un `WHERE` en Postgres sea un **lookup directo por ID** en Firestore cuando sea
+posible, evitando índices compuestos innecesarios:
+
+| Colección | Doc ID | Campos | Por qué ese ID |
+| --- | --- | --- | --- |
+| `tenants/{id}` | auto-ID | `name, plan, apiKeyHash, createdAt` | sin necesidad de lookup por otro campo que no sea `apiKeyHash` (query) |
+| `users/{id}` | auto-ID | `tenantId, email, passwordHash, role, createdAt` | login busca por `email` solo (query global, igual limitación que hoy — primer match, ver Etapa 1.2) |
+| `merchants/{id}` | auto-ID | `tenantId, stellarAddress, operatorAuthorized, createdAt` | `findByTenant` es query (`where tenantId ==`), 1 merchant activo por tenant en el MVP |
+| `recipients/{merchantId}_{alias}` | **compuesto** | `merchantId, alias, stellarAddress, defaultShare, createdAt` | `findByAlias` pasa de query a `.doc(id).get()` (O(1)); `.create()` sobre un ID existente tira `ALREADY_EXISTS` → uniqueness de `(merchantId, alias)` gratis, sin transacción |
+| `voiceCommands/{id}` | auto-ID | `merchantId, transcript, intentJson, status, createdAt` | sin restricción de unicidad |
+| `orders/{id}` | **auto-ID, nunca compuesto** | `merchantId, orderRef, amount(string), splitsJson, status, createTxHash, payTxHash, createdAt` | el id es público (`/pay/[orderId]`, QR) — tiene que seguir siendo no adivinable, así que la unicidad de `(merchantId, orderRef)` se valida con una **transacción** (query + write), no con el ID del doc |
+| `chainEvents/{txHash}` | **= txHash** | `type, orderId, ledger, payload, createdAt` | idempotencia por tx_hash gratis (mismo hash = mismo doc, no duplica) |
+| `indexerState/cursor` | fijo | `lastLedger` | doc único, sin necesidad de colección |
+| `idempotencyKeys/{key}` | **= key** | `tenantId, response, expiresAt` | lookup O(1) + **TTL policy nativa de Firestore** sobre `expiresAt` (borra solo, mejor que lo que había planeado con Postgres) |
+
+Convenciones nuevas específicas de Firestore (además de las de la API, que no cambian):
+
+- **Timestamps**: se guardan como `Timestamp` de Firestore, nunca `Date`/string; se convierten a ISO
+  string (`.toDate().toISOString()`) recién en el DTO de respuesta — la convención de la API
+  (`createdAt` como ISO string en JSON) no cambia.
+- **Montos**: siguen siendo `string` (igual que hoy con `Decimal` de Prisma) — Firestore no tiene tipo
+  decimal nativo, solo `number` (double IEEE754) o entero; guardar el monto como número reintroduce
+  errores de precisión de punto flotante en dinero. Se parsea a número solo en el borde que lo necesita
+  (`SorobanService.i128Arg(amount)`, que ya recibía un string).
+- **Sin joins**: `GET /v1/orders/:id` con scoping por tenant (Etapa 1.10) deja de ser un `WHERE` con
+  relación (`merchant: {tenantId}`) y pasa a ser 2 lecturas: `orders.doc(id).get()` y luego
+  `merchants.doc(order.merchantId).get()`, comparando `merchant.tenantId` en código. Aceptable a esta
+  escala; si el volumen crece, se puede desnormalizar `tenantId` directo en `orders`.
+- **Unicidad sin constraint de DB**: dos mecanismos, elegidos por caso (tabla de arriba): (a) **ID
+  determinístico** cuando el documento no se expone públicamente (`recipients`, `chainEvents`,
+  `idempotencyKeys`) — `.create()` falla solo si ya existe; (b) **transacción** (`runTransaction`) cuando
+  el ID tiene que seguir siendo opaco/auto-generado (`orders`, por la URL pública de pago).
+- **Agregación (`sumPaidSince`, Etapa 1.9)**: Firestore Admin SDK soporta `count()`/`sum()`/`average()`
+  server-side, pero `sum()` exige un campo `number` — como `amount` se guarda como `string` (punto
+  anterior), no aplica directo. Para el volumen de un MVP (pedidos de un comerciante en un día), se
+  resuelve leyendo los documentos filtrados (`where merchantId ==, status == 'PAID', createdAt >= since`)
+  y sumando en JS; no es una liquidación financiera (esa vive on-chain), es un total de dashboard — la
+  imprecisión de punto flotante en la suma para mostrar en UI es aceptable. Optimización futura si crece
+  el volumen: agregar un campo espejo numérico (`amountMinorUnits: number`, enteros) solo para poder usar
+  `.sum()` nativo.
+- **Infra**: `FirestoreService`/`FirestoreModule` (`@Global()`, mismo rol que `PrismaModule` hoy) sobre
+  `firebase-admin`, expone `db: Firestore` (`getFirestore()`). Credenciales: `FIREBASE_PROJECT_ID` +
+  `FIREBASE_SERVICE_ACCOUNT` (JSON del service account) en producción; en local, el SDK se conecta solo al
+  **emulador de Firestore** si `FIRESTORE_EMULATOR_HOST` está seteado (sin credenciales reales) — ver
+  Etapa 1.12 y Etapa 2.1.
+
+**Verificación de la etapa (target Firestore)**: ver Etapa 1.12.
 
 ### Etapa 1.2 — Auth
 
@@ -152,7 +207,7 @@ en las Etapas 1.4/1.5).
 **Contrato — `POST /v1/auth/login`**
 - **Auth**: Public
 - **Request body**: `email` (string, `@IsEmail()`) · `password` (string, `@IsString() @MinLength(8)`)
-- **Response 200** *(hoy 201 por default de Nest — pendiente en Etapa 1.10)*: `{ "accessToken": "eyJhbGciOi..." }`
+- **Response 200** (fix aplicado en Etapa 1.10): `{ "accessToken": "eyJhbGciOi..." }`
 - **Errores**: `401 Invalid credentials` · `400` validación.
 
 **Implementación** (`backend/src/modules/auth/`):
@@ -167,6 +222,8 @@ en las Etapas 1.4/1.5).
   globalmente — el primer match alcanza para el MVP, ver limitación documentada en el código), compara
   con `bcrypt.compare` (paquete `bcryptjs`), firma `{ sub: user.id, tenantId: user.tenantId, role:
   user.role }` con `JwtService.signAsync`.
+  **Migración a Firestore (Etapa 1.12)**: `firestore.db.collection('users').where('email', '==',
+  email).limit(1).get()`, tomar `snapshot.docs[0]` — misma limitación de "primer match" que hoy.
 - `auth.controller.ts` — `POST v1/auth/login`, decorado `@Public()`, delega a `AuthService.login`.
 - `auth.module.ts` — `PassportModule`, `JwtModule.registerAsync` con `secret` desde `ConfigService` y
   `signOptions: { expiresIn: '12h' }`; exporta `JwtModule` (lo necesita `JwtAuthGuard` global en la
@@ -192,14 +249,14 @@ protegida responde `401`.
 - Arma el XDR sin firmar de `set_operator(merchant, operator)` (firma completa del contrato en
   [Fase 3, Etapa 3.1](#etapa-31--contrato-soroban-especificación)); el comerciante lo firma con su
   wallet.
-- **Response 200** *(hoy 201 por default de Nest — pendiente en Etapa 1.10)*: `{ "xdr": "AAAAAgAAAAA..." }`
+- **Response 200** (fix aplicado en Etapa 1.10): `{ "xdr": "AAAAAgAAAAA..." }`
 - **Errores**: `404 Merchant not found` · `500` si el RPC de Stellar falla.
 
 **Contrato — `POST /v1/merchants/operator/submit`**
 - **Auth**: JWT
 - **Request body**: `{ "signedXdr": "AAAAAgAAAAA..." }`
 - Envía el XDR firmado y marca `operatorAuthorized = true`.
-- **Response 200** *(hoy 201 por default de Nest — pendiente en Etapa 1.10)*: `{ "hash": "3f2a..." }`
+- **Response 200** (fix aplicado en Etapa 1.10): `{ "hash": "3f2a..." }`
 - **Errores**: `404 Merchant not found` · `500` tx rechazada por la red.
 
 **Implementación**:
@@ -207,15 +264,21 @@ protegida responde `401`.
 - `backend/src/modules/tenants/tenants.service.ts` — `TenantsService` (sin controller, servicio
   interno): `findByApiKeyHash(apiKeyHash)`, `findById(id)`, `create({name, apiKeyHash, plan?})`, todos
   sobre `PrismaService`.
+  **Migración a Firestore**: `tenants.where('apiKeyHash','==',hash).limit(1).get()`,
+  `tenants.doc(id).get()`, `tenants.add({...})` (auto-ID).
 - `backend/src/modules/merchants/merchants.service.ts` — `MerchantsService`:
   - `findByTenant(tenantId)`: `prisma.merchant.findFirst({where:{tenantId}})`, lanza `NotFoundException`
     si no existe (asume 1 merchant activo por tenant en el MVP).
-  - `findById(id)`: `findUniqueOrThrow`.
+    **Migración a Firestore**: `merchants.where('tenantId','==',tenantId).limit(1).get()`.
+  - `findById(id)`: `findUniqueOrThrow`. **Migración a Firestore**: `merchants.doc(id).get()`, lanzar
+    `NotFoundException` si `!snapshot.exists`.
   - `buildOperatorAuthorizationTx(tenantId)`: resuelve el merchant, llama
     `soroban.buildUnsignedInvocation(merchant.stellarAddress, 'set_operator',
     [SorobanService.addressArg(merchant.stellarAddress), SorobanService.addressArg(soroban.getOperatorPublicKey())])`.
+    Sin cambios con la migración (no toca Prisma directamente).
   - `submitOperatorAuthorization(tenantId, signedXdr)`: resuelve el merchant, llama
     `soroban.submitSignedXdr(signedXdr)`, actualiza `operatorAuthorized: true`, devuelve `{hash}`.
+    **Migración a Firestore**: `merchants.doc(merchant.id).update({operatorAuthorized: true})`.
 - `backend/src/modules/merchants/merchants.controller.ts` — `GET me`, `POST operator/tx`,
   `POST operator/submit` (`dto/submit-operator-auth.dto.ts` con `signedXdr: string`).
 - `backend/src/modules/merchants/merchants.module.ts` / `tenants.module.ts` — wiring estándar.
@@ -238,8 +301,7 @@ protegida responde `401`.
 - **Request body**: `alias` (string) · `stellarAddress` (string) · `defaultShare` (number, opcional,
   `@Min(0)`)
 - **Response 201**: `Recipient` creado.
-- **Errores**: `400` validación · `409 Alias already exists` *(pendiente, ver Etapa 1.10 — hoy Prisma
-  tira `P2002` sin capturar → 500)*.
+- **Errores**: `400` validación · `409 Alias already exists` (implementado en Etapa 1.10).
 
 **Contrato — `PATCH /v1/recipients/:id`**
 - **Auth**: JWT · **Request body**: subconjunto parcial del create (`PartialType(CreateRecipientDto)`).
@@ -247,7 +309,7 @@ protegida responde `401`.
 
 **Contrato — `DELETE /v1/recipients/:id`**
 - **Auth**: JWT
-- **Response 204** *(hoy 200 con el registro borrado — pendiente en Etapa 1.10)*.
+- **Response 204** (fix aplicado en Etapa 1.10).
 - **Errores**: `404 Recipient not found`.
 
 **Implementación** (`backend/src/modules/recipients/`):
@@ -260,6 +322,14 @@ protegida responde `401`.
   compuesta `merchantId_alias` — la reutiliza `OrdersService` en la Etapa 1.5 para resolver splits por
   alias), `create(data: Prisma.RecipientUncheckedCreateInput)`, `update(id, data:
   Prisma.RecipientUncheckedUpdateInput)`, `delete(id)`.
+  **Migración a Firestore**: doc ID = `` `${merchantId}_${alias}` `` (ver modelo de datos, Etapa 1.1).
+  `findAllByMerchant` → `recipients.where('merchantId','==',merchantId).get()`. `findByAlias` →
+  `recipients.doc(\`${merchantId}_${alias}\`).get()` (ya no es query, es lookup directo). `findOne(id,
+  merchantId)` → `recipients.doc(id).get()` + comparar `data.merchantId === merchantId`. `create` →
+  `recipients.doc(\`${merchantId}_${alias}\`).create({...})` — **reemplaza la unicidad que daba Postgres**:
+  si el doc ya existe, `.create()` tira un error con `code === 'already-exists'` (gRPC status 6), que
+  `RecipientsService.create` atrapa igual que hoy atrapa `P2002` (ver Etapa 1.10, fix 4, actualizado).
+  `update`/`delete` → `recipients.doc(id).update(data)`/`.delete()`.
 - `recipients.service.ts` — `RecipientsService`: cada método resuelve primero `merchants.findByTenant`
   para no confiar en un `merchantId` recibido del cliente; `update`/`remove` verifican con
   `repository.findOne(id, merchant.id)` antes de mutar, lanzando `NotFoundException` si no matchea.
@@ -281,8 +351,8 @@ protegida responde `401`.
 - **Response 200**: `Order` completo (`id, merchantId, orderRef, amount, splitsJson, status,
   createTxHash, payTxHash, createdAt`).
 - **Errores**: `404 Order not found`.
-- **Gap conocido**: no valida que el `Order` pertenezca al merchant del `tenantId` del JWT — cualquier
-  usuario autenticado puede leer cualquier orden por id. Pendiente en Etapa 1.10.
+- Scoping por tenant implementado en Etapa 1.10: `OrdersService.findByIdForTenant` valida que el `Order`
+  pertenezca a un merchant del `tenantId` del JWT antes de devolverlo.
 
 **Contrato — `GET /v1/public/orders/:id`**
 - **Auth**: Public
@@ -305,6 +375,15 @@ protegida responde `401`.
   Prisma.OrderUncheckedUpdateInput)`, `sumPaidSince(merchantId, since: Date)` (usa
   `prisma.order.aggregate({where:{merchantId, status:'PAID', createdAt:{gte:since}}, _sum:{amount:true},
   _count:true})` — la reutiliza `AnalyticsService` en la Etapa 1.9).
+  **Migración a Firestore**: `orders` usa **auto-ID** (nunca compuesto — el id es público en
+  `/pay/[orderId]`, tiene que seguir siendo no adivinable, ver modelo de datos Etapa 1.1). `findById(id)`
+  → `orders.doc(id).get()`. `create` deja de poder confiar en una constraint de DB para
+  `(merchantId, orderRef)` — se envuelve en `db.runTransaction(async tx => { const dup = await
+  tx.get(orders.where('merchantId','==',merchantId).where('orderRef','==',orderRef).limit(1)); if
+  (!dup.empty) throw new ConflictException('orderRef already exists'); const ref = orders.doc(); tx.set(ref,
+  {...}); return ref; })`. `update(id, data)` → `orders.doc(id).update(data)`. `sumPaidSince` → query
+  filtrada (`where merchantId ==, status == 'PAID', createdAt >= since`) + suma en JS de `amount` parseado
+  a número (no hay `sum()` nativo sobre un campo string) — ver el punto de agregación en Etapa 1.1.
 - `backend/src/modules/orders/orders.service.ts` — `OrdersService.createFromIntent(merchantId, dto:
   CreateOrderDto)`:
   1. Por cada `split` del dto, `recipients.findByAlias(merchantId, split.recipientAlias)`; si no existe,
@@ -355,13 +434,13 @@ documentadas contra un `Order` de prueba insertado directo en la base (sin pasar
 **Contrato — `POST /v1/public/orders/:id/tx`**
 - **Auth**: Public · **Request body**: `{ "payerPublicKey": "GABC..." }`
 - Arma el XDR sin firmar de `pay(payer, order_id)`.
-- **Response 200** *(hoy 201 por default de Nest — pendiente en Etapa 1.10)*: `{ "xdr": "AAAAAgAAAAA..." }`
+- **Response 200** (fix aplicado en Etapa 1.10): `{ "xdr": "AAAAAgAAAAA..." }`
 - **Errores**: `404 Order not found` · `500` RPC/simulación falla.
 
 **Contrato — `POST /v1/public/orders/:id/submit`**
 - **Auth**: Public · **Request body**: `{ "signedXdr": "AAAAAgAAAAA..." }`
 - Envía el XDR firmado; marca `Order.status = PAID`, `payTxHash`, publica `order:paid` (Etapa 1.8).
-- **Response 200** *(hoy 201 por default de Nest — pendiente en Etapa 1.10)*: `{ "hash": "3f2a..." }`
+- **Response 200** (fix aplicado en Etapa 1.10): `{ "hash": "3f2a..." }`
 - **Errores**: `404 Order not found` · `500` tx rechazada.
 
 **Implementación** (`backend/src/modules/payments/`):
@@ -385,8 +464,8 @@ el flujo de actualización de estado.
 
 ### Etapa 1.7 — Módulo Voice Agent y cola `voice-commands`
 
-**Estado**: Parcial — `voice-agent.controller.ts` y `voice-agent.service.ts` ya existen; falta
-`voice-agent.processor.ts` y los dos módulos de wiring.
+**Estado**: Completada (sobre Prisma). `voice-agent.processor.ts`, `voice-agent.module.ts` y
+`voice-agent.worker.module.ts` ya están implementados siguiendo el diseño de abajo.
 
 **Objetivo**: subir audio, interpretarlo con Raven de forma asíncrona, y confirmar la intención para
 crear la orden.
@@ -437,7 +516,9 @@ crear la orden.
     {commandId, audioBase64: audio.buffer.toString('base64'), filename: audio.originalname})`; devuelve
     `{commandId}`.
   - `confirm(tenantId, commandId)`: resuelve `merchant` y `command` (`findFirst` scoped por
-    `merchantId`, `NotFoundException` si no existe); castea `command.intentJson` a `StoredIntent { intent,
+    `merchantId`, `NotFoundException` si no existe — **migración a Firestore**:
+    `voiceCommands.doc(commandId).get()` + comparar `data.merchantId === merchant.id` en código, sin
+    joins, mismo patrón que `findByIdForTenant` de Orders); castea `command.intentJson` a `StoredIntent { intent,
     order_ref?, amount?, splits?: {recipient_alias, amount}[] }`; si `intent !== 'create_order'` o
     faltan `order_ref`/`amount`, `BadRequestException('Command has no confirmable create_order
     intent')`; mapea `splits` a `CreateOrderDto` (`recipient_alias` → `recipientAlias`); llama
@@ -447,72 +528,49 @@ crear la orden.
   `@UseInterceptors(FileInterceptor('audio'))` + `@UploadedFile()` (requiere `@types/multer`, ya
   instalado); `POST v1/voice/commands/:id/confirm`.
 
-**Pendiente — pasos a implementar**:
+**Implementado**:
 
-1. **`voice-agent.processor.ts`** (nuevo archivo, mismo patrón que `orders.processor.ts` de la Etapa
-   1.5):
-   ```
-   @Processor(QUEUE_NAMES.VOICE_COMMANDS)
-   export class VoiceAgentProcessor extends WorkerHost {
-     constructor(
-       @Inject(AGENT_PROVIDER) private readonly agent: AgentProvider,
-       private readonly prisma: PrismaService,
-       private readonly notifications: NotificationsPublisher,
-     ) { super(); }
-
-     async process(job: Job<{commandId; audioBase64; filename}>) {
-       // 1. command = prisma.voiceCommand.findUnique({where:{id: job.data.commandId}})
-       //    si no existe: logger.warn + return (igual que OrdersProcessor)
-       // 2. audio = Buffer.from(job.data.audioBase64, 'base64')
-       // 3. transcript = await agent.transcribe(audio, job.data.filename)
-       // 4. intent = await agent.interpret(transcript)   // VoiceIntent: {intent, amount?, asset?,
-       //    orderRef?, splits: {recipientAlias, amount, type}[], confidence}
-       // 5. status = (intent.confidence < 0.6 || intent.intent === 'unknown') ? 'UNKNOWN' : 'PENDING'
-       // 6. prisma.voiceCommand.update({where:{id: command.id}, data: {
-       //      transcript,
-       //      intentJson: { intent: intent.intent, amount: intent.amount ?? null,
-       //                     asset: intent.asset ?? null, order_ref: intent.orderRef ?? null,
-       //                     splits: intent.splits.map(s => ({recipient_alias: s.recipientAlias,
-       //                     amount: s.amount, type: s.type})), confidence: intent.confidence },
-       //      status,
-       //    }})
-       //    (nota: la forma de intentJson en snake_case debe matchear StoredIntent de voice-agent.service.ts)
-       // 7. notifications.publish(command.merchantId, 'voice:confirmation', {commandId: command.id,
-       //    transcript, intent})
-     }
-   }
-   ```
+1. **`voice-agent.processor.ts`** — mismo patrón que `orders.processor.ts` de la Etapa 1.5:
+   `@Processor(QUEUE_NAMES.VOICE_COMMANDS) export class VoiceAgentProcessor extends WorkerHost`,
+   constructor con `@Inject(AGENT_PROVIDER) agent: AgentProvider`, `PrismaService`,
+   `NotificationsPublisher`. `process(job)`: `prisma.voiceCommand.findUnique({where:{id:
+   job.data.commandId}})` (si no existe, `logger.warn` + `return`, igual que `OrdersProcessor`) →
+   `Buffer.from(job.data.audioBase64, 'base64')` → `agent.transcribe(audio, filename)` →
+   `agent.interpret(transcript)` → `status = confidence < 0.6 || intent === 'unknown' ? 'UNKNOWN' :
+   'PENDING'` → `prisma.voiceCommand.update({data: {transcript, intentJson: {...en snake_case, matching
+   StoredIntent de voice-agent.service.ts}, status}})` → `notifications.publish(merchantId,
+   'voice:confirmation', {commandId, transcript, intent})`.
+   **Migración a Firestore**: `voiceCommands.doc(commandId).get()` (equivalente a `findUnique`);
+   `voiceCommands.doc(command.id).update({...})`.
    `AgentProvider`/`AGENT_PROVIDER` ya existen en
    `backend/src/infrastructure/agent/agent-provider.interface.ts` (implementado por `RavenClient`,
    `backend/src/infrastructure/agent/raven-client.service.ts`, que llama a `RAVEN_URL` por HTTP).
 
-2. **`voice-agent.module.ts`** (nuevo): `BullModule.registerQueue({name:
-   QUEUE_NAMES.VOICE_COMMANDS})`, importa `MerchantsModule` y `OrdersModule`; `controllers:
-   [VoiceAgentController]`, `providers: [VoiceAgentService]`.
+2. **`voice-agent.module.ts`** — `BullModule.registerQueue({name: QUEUE_NAMES.VOICE_COMMANDS})`, importa
+   `MerchantsModule` y `OrdersModule`; `controllers: [VoiceAgentController]`, `providers:
+   [VoiceAgentService]`.
 
-3. **`voice-agent.worker.module.ts`** (nuevo, mismo patrón que `orders.worker.module.ts`): registra la
-   misma cola, importa `AgentModule` (de `infrastructure/agent/`) y `NotificationsPublisherModule`;
-   `providers: [VoiceAgentProcessor]`. Solo lo importa `worker.module.ts` (Etapa 1.11).
+3. **`voice-agent.worker.module.ts`** — mismo patrón que `orders.worker.module.ts`: registra la misma
+   cola, importa `AgentModule` (de `infrastructure/agent/`) y `NotificationsPublisherModule`; `providers:
+   [VoiceAgentProcessor]`. Solo lo importa `worker.module.ts` (Etapa 1.11).
 
 **Verificación de la etapa**: subir un audio de prueba crea el `VoiceCommand` y encola el job; con
 `AgentProvider` mockeado (sin Raven real todavía, ej. un `FakeAgentProvider` que devuelve un intent fijo)
 el processor actualiza `transcript`/`intentJson` y publica el evento WS; `confirm` sobre un `intentJson`
-válido crea la `Order` esperada.
+válido crea la `Order` esperada. **Pendiente de verificar en runtime** (requiere Postgres/Redis locales,
+ver Fase 2) — el código compila y pasa `npm run build`/`lint`.
 
 ### Etapa 1.8 — Notifications (WebSocket)
 
-**Estado**: Completada (con un gap de seguridad pendiente).
+**Estado**: Completada (el gap de auth original se cerró en la Etapa 1.10).
 
 **Objetivo**: notificar en tiempo real al POS, desde cualquiera de los dos procesos.
 
 **Contrato**:
 - **Namespace**: `/notifications` (Socket.IO, CORS abierto en dev).
-- **Conexión**: el cliente pasa `?merchantId=<id>` en el handshake; el gateway hace
-  `socket.join(merchantId)` automáticamente.
-  **Gap conocido**: no valida el `merchantId` contra un JWT — cualquiera que conozca el id puede
-  suscribirse. Pendiente en Etapa 1.10.
-- **Evento cliente→servidor** `join`: payload `merchantId: string` (redundante con el query param, útil
-  en reconexiones).
+- **Conexión**: el cliente manda el JWT en `socket.handshake.auth.token` (fix de Etapa 1.10 — el query
+  param `merchantId` que se usaba antes ya no es fuente de verdad); el gateway lo valida y resuelve el
+  merchantId real antes de unir el socket a la room.
 - **Evento servidor→cliente** `event`: payload envolvente `{ "event": string, "payload": unknown }`.
 
   | event | payload | quién lo publica |
@@ -533,11 +591,16 @@ válido crea la `Order` esperada.
   cors: {origin: '*'}})`): en `onModuleInit` abre una segunda conexión Redis (`ioredis`) y hace
   `subscriber.psubscribe('merchant:*:events')`; en el handler `pmessage` parsea el canal para sacar el
   `merchantId` y hace `server.to(merchantId).emit('event', JSON.parse(message))`. `handleConnection`
-  hace `socket.join(merchantId)` leyendo `socket.handshake.query.merchantId`. `@SubscribeMessage('join')`
-  repite el `join` manual.
-- `notifications.module.ts` — importa `NotificationsPublisherModule`, agrega `NotificationsGateway` a
-  `providers`. **Solo lo importa `app.module.ts`** (Etapa 1.11) — nunca el worker, porque el gateway
-  necesita el servidor HTTP de la API para levantar Socket.IO.
+  (async, fix de Etapa 1.10): lee `socket.handshake.auth.token`, si falta hace `socket.disconnect(true)`;
+  si está, `jwt.verifyAsync<JwtPayload>(token)` → `merchants.findByTenant(payload.tenantId)` →
+  `socket.join(merchant.id)`; cualquier error (token inválido, merchant no existe) desconecta el socket.
+  Ya no existe un handler `@SubscribeMessage('join')` manual — aceptaba un `merchantId` arbitrario del
+  cliente sin validar, así que se eliminó en vez de intentar validarlo también.
+- `notifications.module.ts` — importa `NotificationsPublisherModule`, `MerchantsModule` (para resolver el
+  merchant en `handleConnection`) y `JwtModule.registerAsync` (propio, mismo secret que `AuthModule` vía
+  `ConfigService` — evita que `NotificationsModule` dependa de `AuthModule` directamente); agrega
+  `NotificationsGateway` a `providers`. **Solo lo importa `app.module.ts`** (Etapa 1.11) — nunca el
+  worker, porque el gateway necesita el servidor HTTP de la API para levantar Socket.IO.
 
 **Verificación de la etapa**: conectar un cliente Socket.IO de prueba a `/notifications?merchantId=X`,
 publicar manualmente vía `redis-cli PUBLISH merchant:X:events '{"event":"order:created","payload":{}}'`
@@ -545,7 +608,7 @@ y confirmar que el cliente lo recibe.
 
 ### Etapa 1.9 — Analytics
 
-**Estado**: Pendiente.
+**Estado**: Completada (sobre Prisma).
 
 **Objetivo**: totales del día para el dashboard del comerciante.
 
@@ -557,9 +620,9 @@ y confirmar que el cliente lo recibe.
   ```
 - **Errores**: `404 Merchant not found`.
 
-**Pasos a implementar**:
+**Implementado**:
 
-1. **`analytics.service.ts`** (nuevo):
+1. **`analytics.service.ts`**:
    ```
    @Injectable()
    export class AnalyticsService {
@@ -586,113 +649,176 @@ y confirmar que el cliente lo recibe.
    }
    ```
    Reusa `OrdersRepository.sumPaidSince(merchantId, since)`, ya implementado en la Etapa 1.5.
+   **Estado real**: implementado y funcionando sobre Prisma (`_sum`/`_count` de `aggregate`). Con la
+   migración a Firestore (Etapa 1.12), `sumPaidSince` deja de devolver `{_sum, _count}` al estilo Prisma
+   y pasa a devolver `{ total: number, count: number }` calculado en JS sobre los docs filtrados (ver
+   Etapa 1.5) — `AnalyticsService.today` se ajusta a `totalAmount: total.toString()`, `count`.
 2. **`analytics.controller.ts`**: `GET v1/analytics/today` (JWT), delega a `AnalyticsService.today(tenantId)`.
 3. **`analytics.module.ts`**: importa `MerchantsModule` y `OrdersModule`; `controllers:
    [AnalyticsController]`, `providers: [AnalyticsService]`.
 4. Agregar `AnalyticsModule` a `app.module.ts` (Etapa 1.11).
 
 **Verificación de la etapa**: con órdenes de prueba `PAID` de hoy y de ayer, la respuesta suma solo las
-de hoy; con cero órdenes `PAID` hoy, `totalAmount` es `"0"` y no `null`/error (cubre el caso `_sum.amount
-=== null` de Prisma `aggregate`).
+de hoy; con cero órdenes `PAID` hoy, `totalAmount` es `"0"` y no `null`/error (hoy cubre el caso
+`_sum.amount === null` de Prisma `aggregate`; en Firestore, el caso equivalente es el array de docs
+vacío → `total` arranca en `0`).
 
 ### Etapa 1.10 — Deuda técnica y hardening
 
-**Estado**: Pendiente.
+**Estado**: Completada.
 
 **Objetivo**: cerrar los gaps identificados en las etapas anteriores antes de dar la fase por cerrada.
 
-**Pasos a implementar**:
+**Implementado**:
 
-1. **[Crítico] `TenantGuard` debe respetar `@Public()`**: agregar `Reflector` al constructor (mismo
-   patrón que `JwtAuthGuard`) y, al inicio de `canActivate`, `if
+1. **[Crítico] `TenantGuard` respeta `@Public()`**: se agregó `Reflector` al constructor (mismo patrón
+   que `JwtAuthGuard`) y, al inicio de `canActivate`, `if
    (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(),
-   context.getClass()])) return true;` antes de exigir `request.user.tenantId`. Sin este fix, la
-   Etapa 1.11 (que registra `TenantGuard` como `APP_GUARD` global) rompe con `401` toda ruta `@Public()`,
-   `POST /v1/auth/login` incluido — hacer este fix **antes** de la Etapa 1.11, no después.
-2. **Status codes correctos**: agregar `@HttpCode(HttpStatus.OK)` (import de `@nestjs/common`) en:
-   `AuthController.login`, `MerchantsController.buildOperatorTx`/`submitOperatorTx`,
-   `PaymentsController.buildTx`/`submit`. `VoiceAgentController.confirm` y
-   `VoiceAgentController.create`/`RecipientsController.create` **no** se tocan — ya devuelven `201` por
-   default de Nest, que es lo correcto porque crean un recurso (`Order`, `VoiceCommand`, `Recipient`).
-   Agregar `@HttpCode(HttpStatus.NO_CONTENT)` en `RecipientsController.remove`, que además debe devolver
-   `void` en vez del registro borrado.
-3. **Scoping de `GET /v1/orders/:id`**: cambiar `OrdersService.findById` para recibir también
-   `tenantId`, y filtrar con un `where` que joinee `merchant: { tenantId }` (Prisma permite filtrar por
-   relación: `prisma.order.findFirst({where: {id, merchant: {tenantId}}})`); actualizar
-   `OrdersController.findOne` para pasar `@CurrentTenant() tenantId`.
-4. **Conflicto de alias duplicado**: en `RecipientsService.create`, envolver la llamada a
-   `repository.create` en un `try/catch`; si el error es `instanceof Prisma.PrismaClientKnownRequestError
-   && error.code === 'P2002'`, lanzar `ConflictException('Alias already exists')`.
-5. **Auth del WebSocket**: `NotificationsGateway.handleConnection` debe leer un JWT de
-   `socket.handshake.auth.token` (no del query param `merchantId`, que queda solo como dato, no como
-   fuente de verdad), validarlo con el mismo `JwtService`/`secret` que usa `JwtStrategy`, resolver el
-   `merchantId` real del tenant del token (vía `MerchantsService.findByTenant`) y solo entonces hacer
-   `socket.join(merchantId)`; si el JWT falta o es inválido, `socket.disconnect()`.
+   context.getClass()])) return true;` antes de exigir `request.user.tenantId`. Sin este fix, registrar
+   `TenantGuard` como `APP_GUARD` global (Etapa 1.11) hubiera roto con `401` toda ruta `@Public()`,
+   `POST /v1/auth/login` incluido.
+2. **Status codes correctos**: `@HttpCode(HttpStatus.OK)` agregado en `AuthController.login`,
+   `MerchantsController.buildOperatorTx`/`submitOperatorTx`, `PaymentsController.buildTx`/`submit`.
+   `VoiceAgentController.confirm`/`create` y `RecipientsController.create` no se tocaron — devuelven
+   `201` por default de Nest, correcto porque crean un recurso (`Order`, `VoiceCommand`, `Recipient`).
+   `@HttpCode(HttpStatus.NO_CONTENT)` agregado en `RecipientsController.remove`, que ahora devuelve
+   `Promise<void>` en vez del registro borrado.
+3. **Scoping de `GET /v1/orders/:id`**: `OrdersRepository.findByIdForTenant(id, tenantId)` nuevo —
+   `prisma.order.findFirst({where: {id, merchant: {tenantId}}})` (filtro por relación); `OrdersService`
+   expone `findByIdForTenant` (separado de `findById`, que sigue sin scoping y lo usa `findPublic`
+   internamente); `OrdersController.findOne` pasa `@CurrentTenant() tenantId`.
+   **Migración a Firestore**: sin joins — `findByIdForTenant` pasa a leer el `Order`, después el
+   `Merchant` (`orders.doc(id).get()` → `merchants.doc(order.merchantId).get()`) y comparar
+   `merchant.tenantId === tenantId` en código; `404` si no matchea, igual que hoy.
+4. **Conflicto de alias duplicado**: `RecipientsService.create` envuelve `repository.create` en
+   `try/catch`; si `error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'`,
+   lanza `ConflictException('Alias already exists')`.
+   **Migración a Firestore**: cambia la condición del catch — con el doc ID determinístico
+   `` `${merchantId}_${alias}` `` (Etapa 1.1/1.4), `.create()` tira un error con `code === 6` /
+   `error.code === 'already-exists'` (Admin SDK) en vez de `P2002`; el resto de la lógica
+   (`ConflictException('Alias already exists')`) no cambia.
+5. **Auth del WebSocket**: `NotificationsGateway.handleConnection` lee el JWT de
+   `socket.handshake.auth.token` (no del query param `merchantId`, que ya no es fuente de verdad), lo
+   valida con `JwtService.verifyAsync` (mismo secret que `JwtStrategy`, vía `JwtModule.registerAsync` en
+   `notifications.module.ts`), resuelve el `merchantId` real con `MerchantsService.findByTenant` y recién
+   ahí hace `socket.join(merchant.id)`; si el token falta o es inválido, `socket.disconnect(true)`. Se
+   eliminó el handler manual `@SubscribeMessage('join')` — aceptaba un `merchantId` arbitrario del
+   cliente sin validar, era el mismo agujero que el query param.
 
-**Verificación de la etapa**: repetir las pruebas de las Etapas 1.2/1.4/1.5/1.8 confirmando los nuevos
-status codes y que los casos de error/seguridad ahora se comportan como se documenta arriba; probar
-específicamente que `POST /v1/auth/login` sigue funcionando después de registrar `TenantGuard` como
-global (Etapa 1.11), que crear dos `Recipient` con el mismo alias da `409`, que `GET /v1/orders/:id` de
-un tenant ajeno da `404`, y que conectar al WS sin token válido desconecta el socket.
+**Verificación de la etapa**: `npm run build`/`lint` verdes (confirmado). Pendiente de probar en runtime
+contra Postgres/Redis locales (Fase 2): `POST /v1/auth/login` funciona con `TenantGuard` global activo,
+crear dos `Recipient` con el mismo alias da `409`, `GET /v1/orders/:id` de un tenant ajeno da `404`,
+conectar al WS sin token válido desconecta el socket.
 
 ### Etapa 1.11 — Wiring de los dos procesos
 
-**Estado**: Pendiente.
+**Estado**: Completada.
 
 **Objetivo**: que `main.ts` (API) y `worker.ts` (worker, nuevo) arranquen con todos los módulos de las
 etapas anteriores correctamente separados.
 
-**Pasos a implementar**:
+**Implementado**:
 
-1. **`src/app.module.ts`** — reemplazar el boilerplate de `nest new` por:
-   - `ConfigModule.forRoot({ isGlobal: true, validate: validateEnv })` (usa
-     `src/config/env.validation.ts`, ya implementado con `zod`).
-   - `PrismaModule`, `RedisModule`, `StellarModule`, `AgentModule` (los cuatro son `@Global()`, se
-     importan una sola vez acá).
-   - `QueueModule` (config de conexión BullMQ, `@Global()`-friendly por `forRootAsync`).
-   - `NotificationsModule` (con gateway — Etapa 1.8).
+1. **`src/app.module.ts`** — reemplazó el boilerplate de `nest new`:
+   - `ConfigModule.forRoot({ isGlobal: true, validate: validateEnv })` (`src/config/env.validation.ts`,
+     con `zod`).
+   - `PrismaModule`, `RedisModule`, `StellarModule`, `AgentModule` (`@Global()`, importados una sola vez
+     acá). **Migración a Firestore**: `PrismaModule` → `FirestoreModule`.
+   - `QueueModule` (config de conexión BullMQ).
+   - `NotificationsModule` (con gateway — Etapa 1.8), `HealthModule` (nuevo, ver abajo).
    - Módulos de dominio: `AuthModule, TenantsModule, MerchantsModule, RecipientsModule, OrdersModule,
      PaymentsModule, VoiceAgentModule, AnalyticsModule` (los de controller/service; **no** los
      `*.worker.module.ts`).
    - `providers`: `{ provide: APP_GUARD, useClass: JwtAuthGuard }`, `{ provide: APP_GUARD, useClass:
-     TenantGuard }` (en ese orden — `TenantGuard` corre después de que `JwtAuthGuard` puso
-     `request.user`), `{ provide: APP_FILTER, useClass: AllExceptionsFilter }`. **Requisito previo**:
-     `TenantGuard` debe tener el fix de `@Public()` de la Etapa 1.10 (paso 1) aplicado antes de este
-     paso — si no, registrar esto rompe con `401` todas las rutas públicas apenas se despliega.
-2. **`src/worker.module.ts`** (nuevo): `ConfigModule.forRoot({isGlobal:true, validate: validateEnv})`,
-   `PrismaModule`, `RedisModule`, `StellarModule`, `AgentModule`, `QueueModule`,
-   `NotificationsPublisherModule` (sin gateway), `OrdersWorkerModule`, `VoiceAgentWorkerModule`. Sin
+     TenantGuard }` (en ese orden), `{ provide: APP_FILTER, useClass: AllExceptionsFilter }`. Seguro
+     porque `TenantGuard` ya tiene el fix de `@Public()` de la Etapa 1.10.
+2. **`src/worker.module.ts`** (nuevo): mismos módulos de infraestructura que `app.module.ts` +
+   `NotificationsPublisherModule` (sin gateway) + `OrdersWorkerModule` + `VoiceAgentWorkerModule`. Sin
    `controllers` en ningún nivel — este proceso no expone HTTP.
-3. **`src/main.ts`** — reemplazar boilerplate:
-   - `app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }))`.
-   - `app.useGlobalFilters(new AllExceptionsFilter())` *(si no quedó cubierto por `APP_FILTER` en el
-     módulo)*.
-   - Swagger: `SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app,
-     new DocumentBuilder().setTitle('VoxPay API').addBearerAuth().build()))`.
-   - Health: módulo `TerminusModule` con un `HealthController` (`GET /health` usando
-     `HealthCheckService` + `PrismaHealthIndicator`/`ping` simple) — puede vivir en `common/health/`.
-   - `app.enableCors({ origin: process.env.FRONTEND_URL ?? '*' })`.
-   - Logging: `app.use(pinoHttp())` (paquete `pino-http`, ya instalado) antes de `app.listen`.
-   - `await app.listen(config.get('PORT') ?? 3001)`.
-4. **`src/worker.ts`** (nuevo): `const app = await NestFactory.createApplicationContext(WorkerModule);
-   app.enableShutdownHooks();` — sin `.listen()`, mantiene vivo el proceso porque los `Processor` de
-   BullMQ abren su propia conexión de long-polling a Redis.
-5. Borrar `app.controller.ts`, `app.service.ts`, `app.controller.spec.ts` (boilerplate default de `nest
-   new`, ya no referenciados).
-6. Actualizar `package.json` de `backend/`: script `worker` (`nest start --entryFile worker` o
-   `node dist/worker.js` en prod) y `worker:dev` (`nest start --watch --entryFile worker`).
+3. **`src/main.ts`**: `ValidationPipe({whitelist:true, transform:true})` global; Swagger en `/docs`
+   (`DocumentBuilder().setTitle('VoxPay API').addBearerAuth()`); CORS con
+   `FRONTEND_URL` (`config.get`, no `getOrThrow` — variable opcional, `*` si no está); `pinoHttp()` como
+   middleware antes de `app.listen`; `app.listen(config.get('PORT') ?? 3001)`. El `AllExceptionsFilter`
+   queda cubierto por `APP_FILTER` en `app.module.ts`, no se duplica en `main.ts`.
+4. **`common/health/`** (nuevo): `HealthController` (`GET /health`, `@Public()`, `@HealthCheck()`) usa
+   `HealthCheckService.check([() => this.prismaIndicator.pingCheck('database', this.prisma)])` con
+   `PrismaHealthIndicator` de `@nestjs/terminus` (confirmado que existe y trae `pingCheck(key,
+   prismaClient, options?)` en la versión instalada — no es una clase que haya que escribir a mano).
+   `HealthModule` importa `TerminusModule`.
+   **Migración a Firestore**: `@nestjs/terminus` no trae un indicador para Firestore. Reemplazar por un
+   health check manual usando la API más nueva de Terminus (`HealthIndicatorService.check('firestore').
+   attempt(() => firestore.db.collection('_health').limit(1).get())`), o simplemente
+   `firestore.db.listCollections()` como ping.
+5. **`src/worker.ts`** (nuevo): `NestFactory.createApplicationContext(WorkerModule)` +
+   `app.enableShutdownHooks()` — sin `.listen()`.
+6. Se borraron `app.controller.ts`, `app.service.ts`, `app.controller.spec.ts` (boilerplate default,
+   ya no referenciados).
+7. `package.json` de `backend/`: scripts `worker` (`nest start --entryFile worker`), `worker:dev` (`nest
+   start --watch --entryFile worker`), `worker:prod` (`node dist/worker`) — confirmado que
+   `--entryFile` es un flag real de `@nestjs/cli` en la versión instalada.
 
-**Verificación de la etapa** (y de toda la Fase 1): `npm run build`/`lint` sin errores; `npm run
-start:dev` levanta la API en `:3001` y responde `GET /health`; `npm run worker:dev` arranca sin
-crashear contra Postgres/Redis locales (se prueba de punta a punta en Fase 2); Swagger en `/docs` lista
-todos los endpoints de las Etapas 1.2 a 1.9 con la forma documentada.
+**Verificación de la etapa** (y de toda la Fase 1, sobre Prisma): `npm run build`/`npm run lint` sin
+errores — **confirmado, ambos verdes**. Pendiente de correr `start:dev`/`worker:dev` contra
+Postgres/Redis reales (Fase 2) y confirmar Swagger en `/docs`.
+
+### Etapa 1.12 — Migración PostgreSQL/Prisma → Firestore
+
+**Estado**: Pendiente. Esta etapa reemplaza la Fase 2 original (que asumía Postgres) — hasta que esté
+completa, el backend sigue corriendo sobre Prisma tal como está descrito en las Etapas 1.1–1.11.
+
+**Objetivo**: dejar el backend corriendo sobre Firestore, sin Prisma ni PostgreSQL, con el mismo
+comportamiento externo (contratos REST/WS/colas sin cambios — ver cada etapa de arriba).
+
+**Tareas**:
+
+1. **Dependencias** (`backend/package.json`): quitar `@prisma/client`, `@prisma/adapter-pg`, `pg`,
+   `prisma` (devDep), `@types/pg`; agregar `firebase-admin`.
+2. **Borrar**: `backend/prisma/` (`schema.prisma`, migraciones), `backend/prisma7.config.ts`,
+   `backend/src/generated/prisma/` (gitignored, se regeneraba con `prisma generate` — ya no aplica),
+   `backend/src/infrastructure/prisma/` (`prisma.module.ts`, `prisma.service.ts`).
+3. **Crear `backend/src/infrastructure/firestore/`**:
+   - `firestore.service.ts` — `FirestoreService implements OnModuleInit`: en `onModuleInit`, si
+     `!getApps().length`, `initializeApp({projectId, credential: cert(JSON.parse(serviceAccountJson))})`
+     en producción, o solo `initializeApp({projectId})` si `FIRESTORE_EMULATOR_HOST` está seteado (el SDK
+     de Admin detecta esa env var solo y se conecta al emulador, sin credenciales); expone `db =
+     getFirestore()`.
+   - `firestore.module.ts` — `@Global() @Module({providers:[FirestoreService], exports:
+     [FirestoreService]})`.
+4. **Reescribir cada repositorio** reemplazando las llamadas a `PrismaService` por `FirestoreService.db`,
+   siguiendo el diseño de colecciones de la Etapa 1.1 y las notas de "Migración a Firestore" ya escritas
+   en cada etapa:
+   - `TenantsService` (Etapa 1.3).
+   - `MerchantsService` (Etapa 1.3).
+   - `RecipientsRepository` (Etapa 1.4) — doc ID compuesto `merchantId_alias`.
+   - `OrdersRepository` (Etapa 1.5) — auto-ID + transacción para unicidad de `orderRef`.
+   - `AuthService` (Etapa 1.2) — query de `users` por email.
+   - `VoiceAgentService`/`VoiceAgentProcessor` (Etapa 1.7) — colección `voiceCommands`.
+   - `AnalyticsService` (Etapa 1.9) — suma en JS en vez de `aggregate`.
+   - `RecipientsService.create` (Etapa 1.10) — catch de `already-exists` en vez de `P2002`.
+5. **`app.module.ts`/`worker.module.ts`** (Etapa 1.11): `PrismaModule` → `FirestoreModule`.
+6. **`common/health/health.controller.ts`** (Etapa 1.11): reemplazar `PrismaHealthIndicator` por el
+   health check manual de Firestore.
+7. **Env**: quitar `DATABASE_URL` de `src/config/env.validation.ts` y de `.env.example`; agregar
+   `FIREBASE_PROJECT_ID` (siempre), `FIREBASE_SERVICE_ACCOUNT` (JSON del service account, solo
+   producción/staging — nunca en `.env.example` con un valor real), `FIRESTORE_EMULATOR_HOST` (solo
+   local, ej. `localhost:8080`).
+8. **`docker-compose.yml`**: quitar el servicio `postgres` (Redis se mantiene). El Firestore local ya no
+   es un contenedor Docker — ver Etapa 2.1 actualizada (Firebase Emulator Suite vía `firebase-tools`,
+   requiere Java).
+9. **`.gitignore`** de `backend/`: quitar la entrada de `src/generated/prisma`; no hace falta agregar
+   nada nuevo (las credenciales de Firebase van por env var, no por archivo versionado).
+
+**Verificación de la etapa**: `npm run build`/`npm run lint` siguen verdes sin ninguna referencia a
+`prisma`/`@prisma` en `backend/src/`; `grep -r "prisma" backend/src` no devuelve nada. El resto de la
+verificación (runtime real) se hace en la Fase 2 actualizada, contra el emulador de Firestore.
 
 ---
 
 ## Fase 2 — Integración local y smoke test
 
 Objetivo de la fase: correr todo el sistema (menos el contrato real y Raven con modelo) contra
-infraestructura local, validando los contratos de la Fase 1 con datos reales. Se divide en 5 etapas.
+infraestructura local, validando los contratos de la Fase 1 con datos reales. Asume que la Etapa 1.12
+(migración a Firestore) ya está hecha — esta fase ya no usa Postgres. Se divide en 5 etapas.
 
 ### Etapa 2.1 — Configuración de entorno
 
@@ -711,29 +837,39 @@ infraestructura local, validando los contratos de la Fase 1 con datos reales. Se
    ```
    Ninguna llamada on-chain real funciona con estos valores — quedan mockeados/fallan en runtime hasta
    la Fase 3 (contrato desplegado + operator real), pero al menos no rompen el boot del proceso.
-2. `docker compose up postgres redis` desde la raíz del repo (deja `raven` fuera del comando hasta la
-   Etapa 2.5).
+   `FIREBASE_PROJECT_ID`: cualquier string en local con el emulador (no hace falta que exista el
+   proyecto real en Firebase); `FIRESTORE_EMULATOR_HOST=localhost:8080`; no completar
+   `FIREBASE_SERVICE_ACCOUNT` en local (el SDK lo ignora cuando detecta el emulador).
+2. Instalar `firebase-tools` (`npm i -g firebase-tools` o `npx firebase-tools`) y tener **Java (JRE
+   11+)** instalado — el emulador de Firestore corre sobre una JVM (ver Restricciones de entorno).
+   `firebase init emulators` una vez (elegir Firestore, puerto default `8080`) si no existe
+   `firebase.json` en el repo todavía.
+3. `firebase emulators:start --only firestore` en una terminal (reemplaza a
+   `docker compose up postgres`); `docker compose up redis` en otra (Redis se mantiene igual, deja
+   `raven` fuera del comando hasta la Etapa 2.5).
 
-**Verificación**: `docker compose ps` muestra `postgres`/`redis` healthy; `psql`/`redis-cli PING` desde
-el host confirman los puertos `5432`/`6379` expuestos.
+**Verificación**: el emulador imprime una URL de Emulator UI (`http://localhost:4000` por default)
+donde se puede ver la base vacía; `docker compose ps` muestra `redis` healthy.
 
-### Etapa 2.2 — Migraciones y seed
+### Etapa 2.2 — Seed de datos
 
 **Tareas**:
-1. `cd backend && npx prisma migrate dev --name init` — genera la primera migración desde
-   `schema.prisma` (Etapa 1.1) y la aplica.
-2. Crear `backend/prisma/seed.ts`:
+1. Crear `backend/scripts/seed.ts` usando `firebase-admin` directo (sin Prisma): conectar contra el
+   emulador (mismas env vars que la app, `FIRESTORE_EMULATOR_HOST` hace que el Admin SDK nunca toque
+   Firebase real) y escribir:
    ```
-   // 1. crear Tenant { name: "Demo VoxPay", apiKeyHash: "..." }
-   // 2. crear User { tenantId, email: "demo@voxpay.dev", passwordHash: bcrypt.hash("password123", 10), role: "OWNER" }
-   // 3. crear Merchant { tenantId, stellarAddress: "<GABC... testnet>", operatorAuthorized: false }
-   // 4. crear 1-2 Recipient { merchantId, alias: "José", stellarAddress: "<GXYZ...>" }
+   // 1. tenants.add({ name: "Demo VoxPay", apiKeyHash: "...", plan: "free", createdAt: Timestamp.now() })
+   // 2. users.add({ tenantId, email: "demo@voxpay.dev",
+   //      passwordHash: await bcrypt.hash("password123", 10), role: "OWNER", createdAt: ... })
+   // 3. merchants.add({ tenantId, stellarAddress: "<GABC... testnet>", operatorAuthorized: false, ... })
+   // 4. recipients.doc(`${merchantId}_José`).set({ merchantId, alias: "José",
+   //      stellarAddress: "<GXYZ...>", createdAt: ... })
    ```
-3. Registrar el seed en `backend/package.json` (`"prisma": {"seed": "tsx prisma/seed.ts"}` o el
-   mecanismo que use `prisma7.config.ts`, ver Etapa 1.1) y correr `npx prisma db seed`.
+2. Correr con `tsx backend/scripts/seed.ts` (o un script `npm run seed` nuevo en `package.json`) contra
+   el emulador ya levantado (Etapa 2.1).
 
-**Verificación**: `npx prisma studio` (o una query directa) muestra el tenant/user/merchant/recipients
-del seed.
+**Verificación**: abrir la Emulator UI (`http://localhost:4000/firestore`) y confirmar que existen los
+4 documentos del seed.
 
 ### Etapa 2.3 — Backend local (API + worker)
 
@@ -945,8 +1081,10 @@ Se divide en 4 etapas.
 
 ### Etapa 5.2 — E2E backend
 
-**Tareas**: `vitest run --config vitest.config.e2e.ts` cubriendo el flujo voice→confirm→order contra un
-Postgres/Redis de test (mismo `docker-compose.yml`, base de datos separada).
+**Tareas**: `vitest run --config vitest.config.e2e.ts` cubriendo el flujo voice→confirm→order contra el
+emulador de Firestore + Redis de test (mismo `docker-compose.yml` para Redis; el emulador de Firestore
+se resetea entre corridas con su endpoint REST de limpieza, `DELETE
+http://localhost:8080/emulator/v1/projects/<project>/databases/(default)/documents`).
 
 ### Etapa 5.3 — Frontend
 

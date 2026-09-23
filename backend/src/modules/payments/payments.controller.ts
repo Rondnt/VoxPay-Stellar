@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator.js';
 import { BuildPaymentTxDto } from './dto/build-payment-tx.dto.js';
@@ -12,12 +12,14 @@ export class PaymentsController {
   constructor(private readonly payments: PaymentsService) {}
 
   @Post('tx')
+  @HttpCode(HttpStatus.OK)
   async buildTx(@Param('id') id: string, @Body() dto: BuildPaymentTxDto) {
     const xdr = await this.payments.buildPaymentTx(id, dto.payerPublicKey);
     return { xdr };
   }
 
   @Post('submit')
+  @HttpCode(HttpStatus.OK)
   submit(@Param('id') id: string, @Body() dto: SubmitPaymentDto) {
     return this.payments.submitPayment(id, dto.signedXdr);
   }

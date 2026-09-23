@@ -59,6 +59,13 @@ export class OrdersService {
     return order;
   }
 
+  /** Uso en rutas protegidas: la orden debe pertenecer a un merchant del tenant del JWT. */
+  async findByIdForTenant(id: string, tenantId: string) {
+    const order = await this.repository.findByIdForTenant(id, tenantId);
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
+  }
+
   /** Datos públicos para la página de pago: nada sensible del comerciante ni de otros pedidos. */
   async findPublic(id: string) {
     const order = await this.findById(id);

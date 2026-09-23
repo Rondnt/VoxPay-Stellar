@@ -21,7 +21,7 @@ export class RavenClient implements AgentProvider {
 
   async transcribe(audio: Buffer, filename: string): Promise<string> {
     const form = new FormData();
-    form.append('audio', new Blob([audio]), filename);
+    form.append('audio', new Blob([Uint8Array.from(audio)]), filename);
 
     const res = await fetch(`${this.baseUrl}/transcribe`, { method: 'POST', body: form });
     if (!res.ok) {

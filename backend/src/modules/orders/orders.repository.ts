@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '../../../generated/prisma/client.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
 
 @Injectable()
@@ -8,6 +8,10 @@ export class OrdersRepository {
 
   findById(id: string) {
     return this.prisma.order.findUnique({ where: { id } });
+  }
+
+  findByIdForTenant(id: string, tenantId: string) {
+    return this.prisma.order.findFirst({ where: { id, merchant: { tenantId } } });
   }
 
   findByMerchantAndRef(merchantId: string, orderRef: string) {

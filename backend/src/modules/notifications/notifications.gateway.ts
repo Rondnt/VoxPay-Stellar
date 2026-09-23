@@ -1,8 +1,11 @@
-import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SubscribeMessage, WebSocketGateway, WebSocketServer, type OnGatewayConnection } from '@nestjs/websockets';
+import { JwtService } from '@nestjs/jwt';
+import { WebSocketGateway, WebSocketServer, type OnGatewayConnection } from '@nestjs/websockets';
 import { Redis } from 'ioredis';
 import type { Server, Socket } from 'socket.io';
+import type { JwtPayload } from '../auth/strategies/jwt.strategy.js';
+import { MerchantsService } from '../merchants/merchants.service.js';
 
 /**
  * Solo corre en el proceso API (necesita el servidor HTTP para levantar Socket.IO).
@@ -15,14 +18,19 @@ export class NotificationsGateway implements OnGatewayConnection, OnModuleInit, 
   @WebSocketServer()
   server!: Server;
 
+  private readonly logger = new Logger(NotificationsGateway.name);
   private readonly subscriber: Redis;
 
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly jwt: JwtService,
+    private readonly merchants: MerchantsService,
+  ) {
     this.subscriber = new Redis(config.getOrThrow<string>('REDIS_URL'));
   }
 
   onModuleInit() {
-    this.subscriber.psubscribe('merchant:*:events');
+    void this.subscriber.psubscribe('merchant:*:events');
     this.subscriber.on('pmessage', (_pattern: string, channel: string, message: string) => {
       const merchantId = channel.split(':')[1];
       this.server.to(merchantId).emit('event', JSON.parse(message));
@@ -33,15 +41,21 @@ export class NotificationsGateway implements OnGatewayConnection, OnModuleInit, 
     this.subscriber.disconnect();
   }
 
-  handleConnection(socket: Socket) {
-    const merchantId = socket.handshake.query.merchantId;
-    if (typeof merchantId === 'string') {
-      socket.join(merchantId);
+  /** Autentica con el mismo JWT que la API REST; el merchantId nunca se confía del cliente. */
+  async handleConnection(socket: Socket): Promise<void> {
+    const token = socket.handshake.auth?.token as string | undefined;
+    if (!token) {
+      socket.disconnect(true);
+      return;
     }
-  }
 
-  @SubscribeMessage('join')
-  handleJoin(socket: Socket, merchantId: string) {
-    socket.join(merchantId);
+    try {
+      const payload = await this.jwt.verifyAsync<JwtPayload>(token);
+      const merchant = await this.merchants.findByTenant(payload.tenantId);
+      void socket.join(merchant.id);
+    } catch (error) {
+      this.logger.warn(`Rejected socket connection: ${(error as Error).message}`);
+      socket.disconnect(true);
+    }
   }
 }

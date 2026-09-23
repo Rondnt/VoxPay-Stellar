@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client.js';
 import { MerchantsService } from '../merchants/merchants.service.js';
 import type { CreateRecipientDto } from './dto/create-recipient.dto.js';
 import type { UpdateRecipientDto } from './dto/update-recipient.dto.js';
@@ -18,7 +19,19 @@ export class RecipientsService {
 
   async create(tenantId: string, dto: CreateRecipientDto) {
     const merchant = await this.merchants.findByTenant(tenantId);
-    return this.repository.create({ ...dto, merchantId: merchant.id });
+    try {
+      return await this.repository.create({
+        alias: dto.alias,
+        stellarAddress: dto.stellarAddress,
+        defaultShare: dto.defaultShare,
+        merchantId: merchant.id,
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('Alias already exists');
+      }
+      throw error;
+    }
   }
 
   async update(tenantId: string, id: string, dto: UpdateRecipientDto) {

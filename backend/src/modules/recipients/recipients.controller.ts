@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentTenant } from '../../common/decorators/current-tenant.decorator.js';
 import { CreateRecipientDto } from './dto/create-recipient.dto.js';
@@ -30,7 +30,8 @@ export class RecipientsController {
   }
 
   @Delete(':id')
-  remove(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.recipients.remove(tenantId, id);
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(@CurrentTenant() tenantId: string, @Param('id') id: string): Promise<void> {
+    await this.recipients.remove(tenantId, id);
   }
 }
