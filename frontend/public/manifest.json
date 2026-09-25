@@ -4,13 +4,13 @@
   "description": "POS inteligente por voz sobre Stellar",
   "start_url": "/pos",
   "display": "standalone",
-  "background_color": "#0a0a0a",
-  "theme_color": "#0a0a0a",
+  "background_color": "#253745",
+  "theme_color": "#11212d",
   "icons": [
     {
-      "src": "/next.svg",
+      "src": "/brand/463ac.png",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/png"
     }
   ]
 }
