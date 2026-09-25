@@ -38,7 +38,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       response.status === 401 &&
       !path.includes("/auth/login") &&
       !path.includes("/public/") &&
-      typeof window !== "undefined"
+      typeof window !== "undefined" &&
+      !window.location.pathname.includes("/login")
     )
       window.location.replace("/login?expired=1");
     const message =

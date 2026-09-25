@@ -1,4 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyFirebaseToken } from "@/lib/firebase-server";
+
+// ─── Helpers para tokens Firebase ─────────────────────────────────────────
+/** Firebase ID tokens son JWTs firmados por Google (RS256, iss = securetoken.google.com) */
+function isFirebaseToken(token: string): boolean {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(
+      Buffer.from(parts[1], "base64").toString("utf8"),
+    );
+    return (
+      typeof payload.iss === "string" &&
+      payload.iss.startsWith("https://securetoken.google.com/")
+    );
+  } catch {
+    return false;
+  }
+}
+
 const routes: Record<string, RegExp[]> = {
   GET: [
     /^v1\/merchants\/me$/,
@@ -39,6 +59,8 @@ async function handler(
   const isLogin = path === "v1/auth/login";
   const isPublic = path.startsWith("v1/public/") || isLogin;
   const token = request.cookies.get("voxpay_session")?.value;
+
+  // ── Logout: borrar cookie independientemente del tipo de token ────────────
   if (path === "v1/auth/logout") {
     const response = new NextResponse(null, { status: 204 });
     response.cookies.delete("voxpay_session");
@@ -46,6 +68,20 @@ async function handler(
   }
   if (!isPublic && !token)
     return NextResponse.json({ message: "Sesión requerida" }, { status: 401 });
+
+  const firebaseSession = !isPublic && !!token && isFirebaseToken(token);
+  if (firebaseSession && token) {
+    try {
+      await verifyFirebaseToken(token);
+    } catch {
+      const response = NextResponse.json(
+        { message: "Tu sesión venció. Vuelve a iniciar sesión." },
+        { status: 401 },
+      );
+      response.cookies.delete("voxpay_session");
+      return response;
+    }
+  }
   const maxBodyBytes = 13 * 1024 * 1024; // 12 MB audio plus multipart headers.
   if (Number(request.headers.get("content-length")) > maxBodyBytes)
     return NextResponse.json(
@@ -77,6 +113,16 @@ async function handler(
       signal: AbortSignal.timeout(40_000),
     });
     const text = await upstream.text();
+    if (firebaseSession && upstream.status === 401) {
+      return NextResponse.json(
+        {
+          code: "FIREBASE_BACKEND_NOT_LINKED",
+          message:
+            "Tu cuenta está autenticada con Firebase. Falta vincularla a un negocio en la API de VoxPay; no se usarán los datos de la demo.",
+        },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     if (isLogin && upstream.ok) {
       const data = JSON.parse(text) as { accessToken?: string };
       if (!data.accessToken) throw new Error("Invalid login response");
@@ -102,6 +148,7 @@ async function handler(
       response.cookies.delete("voxpay_session");
     return response;
   } catch {
+    if (firebaseSession) return NextResponse.json({ message: "Has iniciado sesión con Firebase. La API de VoxPay todavía no está disponible para cargar tu negocio." }, { status: 424 });
     return NextResponse.json(
       { message: "No se pudo contactar a la API de VoxPay" },
       { status: 502 },

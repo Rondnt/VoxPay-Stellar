@@ -32,6 +32,11 @@ export function MerchantShell({ children }: { children: ReactNode }) {
   } = useResource<Merchant>("/v1/merchants/me");
   async function logout() {
     try {
+      const [{ auth }, { signOut }] = await Promise.all([
+        import("@/lib/firebase"),
+        import("firebase/auth"),
+      ]);
+      await signOut(auth);
       await apiClient.post("/v1/auth/logout");
       router.replace("/login");
       router.refresh();
