@@ -1,6 +1,5 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import { Address, nativeToScVal } from '@stellar/stellar-sdk';
 import type { Job } from 'bullmq';
 import { QUEUE_NAMES } from '../../infrastructure/queue/queue.constants.js';
 import { SorobanService } from '../../infrastructure/stellar/soroban.service.js';
@@ -42,23 +41,16 @@ export class OrdersProcessor extends WorkerHost {
     const merchant = await this.merchants.findById(order.merchantId);
     const splits = order.splitsJson as unknown as StoredSplit[];
 
-    // TODO(fase 3): validar el encoding de Vec<Split> contra el contrato real una vez existan los
-    // bindings generados (`stellar contract bindings typescript`) — nativeToScVal no conoce el layout
-    // exacto del struct sin el spec del contrato.
-    const splitsArg = nativeToScVal(
-      splits.map((split) => ({
-        recipient: new Address(split.stellarAddress),
-        amount: BigInt(Math.trunc(split.amount)),
+    const { hash } = await this.soroban.invokeAsOperator('create_order', {
+      operator: this.soroban.getOperatorPublicKey(),
+      merchant: merchant.stellarAddress,
+      order_id: order.orderRef,
+      amount: SorobanService.toContractAmount(Number(order.amount)),
+      splits: splits.map((split) => ({
+        recipient: split.stellarAddress,
+        amount: SorobanService.toContractAmount(split.amount),
       })),
-    );
-
-    const { hash } = await this.soroban.invokeAsOperator('create_order', [
-      SorobanService.addressArg(this.soroban.getOperatorPublicKey()),
-      SorobanService.addressArg(merchant.stellarAddress),
-      SorobanService.stringArg(order.orderRef),
-      SorobanService.i128Arg(order.amount.toString()),
-      splitsArg,
-    ]);
+    });
 
     await this.repository.update(order.id, { createTxHash: hash });
 
@@ -67,5 +59,11 @@ export class OrdersProcessor extends WorkerHost {
       orderRef: order.orderRef,
       hash,
     });
+  }
+
+  /** Sin esto, un job que agota sus reintentos falla en silencio — nada lo loguea por default. */
+  @OnWorkerEvent('failed')
+  onFailed(job: Job<CreateOrderJobData> | undefined, error: Error): void {
+    this.logger.error(`create_order job ${job?.id} (order ${job?.data.orderId}) failed: ${error.message}`);
   }
 }

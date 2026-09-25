@@ -1,9 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '../../generated/prisma/client.js';
 import { MerchantsService } from '../merchants/merchants.service.js';
 import type { CreateRecipientDto } from './dto/create-recipient.dto.js';
 import type { UpdateRecipientDto } from './dto/update-recipient.dto.js';
 import { RecipientsRepository } from './recipients.repository.js';
+
+/** gRPC status code que el Admin SDK de Firestore usa cuando `.create()` choca con un doc existente. */
+const GRPC_ALREADY_EXISTS = 6;
 
 @Injectable()
 export class RecipientsService {
@@ -27,7 +29,7 @@ export class RecipientsService {
         merchantId: merchant.id,
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if ((error as { code?: number }).code === GRPC_ALREADY_EXISTS) {
         throw new ConflictException('Alias already exists');
       }
       throw error;

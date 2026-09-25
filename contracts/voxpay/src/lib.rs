@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{contract, contractevent, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env, String, Vec};
 
 #[derive(Clone)]
 #[contracttype]
@@ -34,6 +34,28 @@ pub struct Order {
     pub splits: Vec<Split>,
     pub status: OrderStatus,
     pub created_at: u64,
+}
+
+#[contractevent(topics = ["order_created"])]
+pub struct OrderCreated {
+    #[topic]
+    pub order_id: String,
+    pub merchant: Address,
+}
+
+#[contractevent(topics = ["order_paid"])]
+pub struct OrderPaid {
+    #[topic]
+    pub order_id: String,
+    pub payer: Address,
+    pub amount: i128,
+}
+
+#[contractevent(topics = ["order_cancelled"])]
+pub struct OrderCancelled {
+    #[topic]
+    pub order_id: String,
+    pub caller: Address,
 }
 
 #[contracterror]
@@ -114,8 +136,7 @@ impl VoxPayContract {
         };
         env.storage().persistent().set(&key, &order);
 
-        env.events()
-            .publish((Symbol::new(&env, "order_created"), order_id), merchant);
+        OrderCreated { order_id, merchant }.publish(&env);
     }
 
     /// El cliente paga el monto exacto; el contrato reparte USDC y marca la orden como Paid.
@@ -146,10 +167,7 @@ impl VoxPayContract {
         order.status = OrderStatus::Paid;
         env.storage().persistent().set(&key, &order);
 
-        env.events().publish(
-            (Symbol::new(&env, "order_paid"), order_id),
-            (payer, order.amount),
-        );
+        OrderPaid { order_id, payer, amount: order.amount }.publish(&env);
     }
 
     /// El comerciante o su operator cancelan una orden que aún no fue pagada.
@@ -179,8 +197,7 @@ impl VoxPayContract {
         order.status = OrderStatus::Cancelled;
         env.storage().persistent().set(&key, &order);
 
-        env.events()
-            .publish((Symbol::new(&env, "order_cancelled"), order_id), caller);
+        OrderCancelled { order_id, caller }.publish(&env);
     }
 
     /// Lectura pública: monto, repartos y estado de una orden.

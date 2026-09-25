@@ -1,20 +1,25 @@
 import { Controller, Get } from '@nestjs/common';
-import { HealthCheck, HealthCheckService, PrismaHealthIndicator } from '@nestjs/terminus';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
+import { HealthCheck, HealthCheckService, HealthIndicatorService } from '@nestjs/terminus';
+import { FirestoreService } from '../../infrastructure/firestore/firestore.service.js';
 import { Public } from '../decorators/public.decorator.js';
 
 @Controller('health')
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,
-    private readonly prismaIndicator: PrismaHealthIndicator,
-    private readonly prisma: PrismaService,
+    private readonly indicators: HealthIndicatorService,
+    private readonly firestore: FirestoreService,
   ) {}
 
   @Public()
   @Get()
   @HealthCheck()
   check() {
-    return this.health.check([() => this.prismaIndicator.pingCheck('database', this.prisma)]);
+    return this.health.check([
+      () =>
+        this.indicators.check('firestore').attempt(async () => {
+          await this.firestore.db.listCollections();
+        }),
+    ]);
   }
 }

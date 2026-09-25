@@ -5,24 +5,14 @@ edition = "2021"
 publish = false
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+# `cdylib` no hace falta acá: `stellar contract build` lo pasa explícito vía `cargo rustc
+# --crate-type=cdylib --target=wasm32v1-none`. Declararlo también acá hace que `cargo test` intente
+# linkear un cdylib (.dll) para el host en Windows-GNU, y el árbol de deps de soroban-env-host
+# (curve25519-dalek, ark-bn254, k256, p256, ...) excede el límite de ordinales de export de una DLL PE.
+crate-type = ["rlib"]
 
 [dependencies]
-soroban-sdk = "21.7.4"
+soroban-sdk = "26"
 
 [dev-dependencies]
-soroban-sdk = { version = "21.7.4", features = ["testutils"] }
-
-[profile.release]
-opt-level = "z"
-overflow-checks = true
-debug = 0
-strip = "symbols"
-debug-assertions = false
-panic = "abort"
-codegen-units = 1
-lto = true
-
-[profile.release-with-logs]
-inherits = "release"
-debug-assertions = true
+soroban-sdk = { version = "26", features = ["testutils"] }

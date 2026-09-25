@@ -44,11 +44,14 @@ contracts/**/target/
 contracts/**/.soroban/
 Cargo.lock
 
-# Prisma auto-installed AI agent skills (regenerable via `npx prisma init`/`prisma generate`)
+# Prisma auto-installed AI agent skills (still on disk from before the Firestore migration; not code)
 backend/.agents/
 backend/.claude/
 backend/.windsurf/
 backend/skills-lock.json
+
+# Firebase Emulator Suite local cache
+.firebase/
 
 # Editor / OS
 .vscode/*

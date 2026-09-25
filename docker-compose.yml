@@ -1,21 +1,6 @@
+# La base de datos es Firestore (no Postgres): el emulador local corre aparte con
+# `firebase emulators:start --only firestore` (ver firebase.json), no via Docker.
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: voxpay
-      POSTGRES_PASSWORD: voxpay
-      POSTGRES_DB: voxpay
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U voxpay"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -41,5 +26,4 @@ services:
       - ./ai-service/models:/app/models
 
 volumes:
-  postgres_data:
   redis_data:

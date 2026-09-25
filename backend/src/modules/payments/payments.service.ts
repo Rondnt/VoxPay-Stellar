@@ -15,10 +15,10 @@ export class PaymentsService {
     const order = await this.orders.findById(orderId);
     if (!order) throw new NotFoundException('Order not found');
 
-    return this.soroban.buildUnsignedInvocation(payerPublicKey, 'pay', [
-      SorobanService.addressArg(payerPublicKey),
-      SorobanService.stringArg(order.orderRef),
-    ]);
+    return this.soroban.buildUnsignedInvocation(payerPublicKey, 'pay', {
+      payer: payerPublicKey,
+      order_id: order.orderRef,
+    });
   }
 
   async submitPayment(orderId: string, signedXdr: string): Promise<{ hash: string }> {

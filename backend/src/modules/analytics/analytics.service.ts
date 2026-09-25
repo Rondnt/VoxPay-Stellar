@@ -16,11 +16,11 @@ export class AnalyticsService {
     from.setUTCHours(0, 0, 0, 0);
     const to = new Date();
 
-    const { _sum, _count } = await this.orders.sumPaidSince(merchant.id, from);
+    const { total, count } = await this.orders.sumPaidSince(merchant.id, from);
 
     return {
-      totalAmount: (_sum.amount ?? 0).toString(),
-      count: _count,
+      totalAmount: total.toString(),
+      count,
       from: from.toISOString(),
       to: to.toISOString(),
     };

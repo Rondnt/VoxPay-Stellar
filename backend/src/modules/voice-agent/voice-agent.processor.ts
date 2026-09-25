@@ -1,8 +1,8 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { AGENT_PROVIDER, type AgentProvider } from '../../infrastructure/agent/agent-provider.interface.js';
-import { PrismaService } from '../../infrastructure/prisma/prisma.service.js';
+import { FirestoreService } from '../../infrastructure/firestore/firestore.service.js';
 import { QUEUE_NAMES } from '../../infrastructure/queue/queue.constants.js';
 import { NotificationsPublisher } from '../notifications/notifications.publisher.js';
 
@@ -19,20 +19,24 @@ export class VoiceAgentProcessor extends WorkerHost {
 
   constructor(
     @Inject(AGENT_PROVIDER) private readonly agent: AgentProvider,
-    private readonly prisma: PrismaService,
+    private readonly firestore: FirestoreService,
     private readonly notifications: NotificationsPublisher,
   ) {
     super();
   }
 
+  private get collection() {
+    return this.firestore.db.collection('voiceCommands');
+  }
+
   async process(job: Job<VoiceCommandJobData>): Promise<void> {
-    const command = await this.prisma.voiceCommand.findUnique({
-      where: { id: job.data.commandId },
-    });
-    if (!command) {
+    const docRef = this.collection.doc(job.data.commandId);
+    const doc = await docRef.get();
+    if (!doc.exists) {
       this.logger.warn(`VoiceCommand ${job.data.commandId} not found, skipping`);
       return;
     }
+    const merchantId = (doc.data() as { merchantId: string }).merchantId;
 
     const audio = Buffer.from(job.data.audioBase64, 'base64');
     const transcript = await this.agent.transcribe(audio, job.data.filename);
@@ -40,30 +44,33 @@ export class VoiceAgentProcessor extends WorkerHost {
 
     const status = intent.confidence < 0.6 || intent.intent === 'unknown' ? 'UNKNOWN' : 'PENDING';
 
-    await this.prisma.voiceCommand.update({
-      where: { id: command.id },
-      data: {
-        transcript,
-        intentJson: {
-          intent: intent.intent,
-          amount: intent.amount ?? null,
-          asset: intent.asset ?? null,
-          order_ref: intent.orderRef ?? null,
-          splits: intent.splits.map((split) => ({
-            recipient_alias: split.recipientAlias,
-            amount: split.amount,
-            type: split.type,
-          })),
-          confidence: intent.confidence,
-        },
-        status,
+    await docRef.update({
+      transcript,
+      intentJson: {
+        intent: intent.intent,
+        amount: intent.amount ?? null,
+        asset: intent.asset ?? null,
+        order_ref: intent.orderRef ?? null,
+        splits: intent.splits.map((split) => ({
+          recipient_alias: split.recipientAlias,
+          amount: split.amount,
+          type: split.type,
+        })),
+        confidence: intent.confidence,
       },
+      status,
     });
 
-    await this.notifications.publish(command.merchantId, 'voice:confirmation', {
-      commandId: command.id,
+    await this.notifications.publish(merchantId, 'voice:confirmation', {
+      commandId: doc.id,
       transcript,
       intent,
     });
+  }
+
+  /** Sin esto, un job que agota sus reintentos falla en silencio — nada lo loguea por default. */
+  @OnWorkerEvent('failed')
+  onFailed(job: Job<VoiceCommandJobData> | undefined, error: Error): void {
+    this.logger.error(`interpret job ${job?.id} (command ${job?.data.commandId}) failed: ${error.message}`);
   }
 }

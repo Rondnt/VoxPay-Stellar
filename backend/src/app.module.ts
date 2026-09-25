@@ -7,7 +7,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 import { TenantGuard } from './common/guards/tenant.guard.js';
 import { validateEnv } from './config/env.validation.js';
 import { AgentModule } from './infrastructure/agent/agent.module.js';
-import { PrismaModule } from './infrastructure/prisma/prisma.module.js';
+import { FirestoreModule } from './infrastructure/firestore/firestore.module.js';
 import { QueueModule } from './infrastructure/queue/queue.module.js';
 import { RedisModule } from './infrastructure/redis/redis.module.js';
 import { StellarModule } from './infrastructure/stellar/stellar.module.js';
@@ -24,7 +24,7 @@ import { VoiceAgentModule } from './modules/voice-agent/voice-agent.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    PrismaModule,
+    FirestoreModule,
     RedisModule,
     StellarModule,
     AgentModule,

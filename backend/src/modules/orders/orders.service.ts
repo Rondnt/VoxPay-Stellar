@@ -18,7 +18,7 @@ export class OrdersService {
     @InjectQueue(QUEUE_NAMES.ORDERS) private readonly ordersQueue: Queue<CreateOrderJobData>,
   ) {}
 
-  /** Crea la orden en Postgres (Pending) y encola su creación on-chain (create_order). */
+  /** Crea la orden en Firestore (Pending) y encola su creación on-chain (create_order). */
   async createFromIntent(merchantId: string, dto: CreateOrderDto) {
     const resolvedSplits = [];
     let splitsTotal = 0;

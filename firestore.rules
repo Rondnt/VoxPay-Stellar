@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// Solo el backend (Admin SDK) toca Firestore — el Admin SDK ignora estas reglas por diseño, así que
+// esto es defensa en profundidad: ningún cliente (frontend, wallet, etc.) tiene ni debería tener
+// credenciales de Firebase para hablarle directo a la base, todo pasa por la API de VoxPay.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,30 +1,41 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
-  Address,
   BASE_FEE,
   Contract,
   Keypair,
   Networks,
   Transaction,
   TransactionBuilder,
-  nativeToScVal,
   rpc,
-  scValToNative,
   xdr,
 } from '@stellar/stellar-sdk';
+import { Spec as ContractSpec } from '@stellar/stellar-sdk/contract';
+import { CONTRACT_SPEC_ENTRIES, type Order } from './bindings/index.js';
+
+/**
+ * El SDK no le pone timeout a las llamadas RPC por default (`Options.timeout` default: 0, sin límite) —
+ * contra una cuenta que no existe on-chain (ej. el operator inventado de desarrollo local), la llamada
+ * queda colgada en vez de fallar rápido. Verificado en Fase 2: sin esto, un job de la cola `orders`
+ * cuelga el worker entero esperando una respuesta que nunca llega.
+ */
+const RPC_TIMEOUT_MS = 10_000;
 
 @Injectable()
 export class SorobanService {
   private readonly logger = new Logger(SorobanService.name);
   private readonly server: rpc.Server;
   private readonly contract: Contract;
+  private readonly spec: ContractSpec;
   private readonly networkPassphrase: string;
   private readonly operatorKeypair: Keypair;
 
   constructor(config: ConfigService) {
-    this.server = new rpc.Server(config.getOrThrow<string>('STELLAR_RPC_URL'));
+    this.server = new rpc.Server(config.getOrThrow<string>('STELLAR_RPC_URL'), {
+      timeout: RPC_TIMEOUT_MS,
+    });
     this.contract = new Contract(config.getOrThrow<string>('STELLAR_CONTRACT_ID'));
+    this.spec = new ContractSpec(CONTRACT_SPEC_ENTRIES);
     this.networkPassphrase =
       config.get<string>('STELLAR_NETWORK', 'testnet') === 'testnet'
         ? Networks.TESTNET
@@ -32,14 +43,19 @@ export class SorobanService {
     this.operatorKeypair = Keypair.fromSecret(config.getOrThrow<string>('STELLAR_OPERATOR_SECRET'));
   }
 
-  /** Invoca al contrato firmando con la clave del operator (create_order, cancel_order, set_operator). */
-  async invokeAsOperator(method: string, args: xdr.ScVal[]): Promise<{ hash: string }> {
+  /**
+   * Invoca al contrato firmando con la clave del operator (create_order, cancel_order, set_operator).
+   * `args` son los argumentos nombrados tal cual el contrato (ej. `{operator, merchant, order_id, amount,
+   * splits}` para `create_order`) — `this.spec.funcArgsToScVals` los encodea contra el ABI real del
+   * contrato (Etapa 3.4: reemplaza el `nativeToScVal` manual, que no validaba nombres/tipos de campos).
+   */
+  async invokeAsOperator(method: string, args: object): Promise<{ hash: string }> {
     const account = await this.server.getAccount(this.operatorKeypair.publicKey());
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
       networkPassphrase: this.networkPassphrase,
     })
-      .addOperation(this.contract.call(method, ...args))
+      .addOperation(this.contract.call(method, ...this.spec.funcArgsToScVals(method, args)))
       .setTimeout(30)
       .build();
 
@@ -48,18 +64,18 @@ export class SorobanService {
     return this.submit(prepared);
   }
 
-  /** Arma el XDR sin firmar de pay(), para que el cliente lo firme con su wallet. */
+  /** Arma el XDR sin firmar de pay()/set_operator(), para que el cliente lo firme con su wallet. */
   async buildUnsignedInvocation(
     sourcePublicKey: string,
     method: string,
-    args: xdr.ScVal[],
+    args: object,
   ): Promise<string> {
     const account = await this.server.getAccount(sourcePublicKey);
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
       networkPassphrase: this.networkPassphrase,
     })
-      .addOperation(this.contract.call(method, ...args))
+      .addOperation(this.contract.call(method, ...this.spec.funcArgsToScVals(method, args)))
       .setTimeout(30)
       .build();
 
@@ -78,20 +94,18 @@ export class SorobanService {
   }
 
   /** Lectura on-chain de una orden (get_order); no requiere firma ni fondos. */
-  async getOrder(orderId: string): Promise<unknown> {
-    const retval = await this.simulateReadOnly('get_order', [
-      nativeToScVal(orderId, { type: 'string' }),
-    ]);
-    return scValToNative(retval);
+  async getOrder(orderId: string): Promise<Order> {
+    const retval = await this.simulateReadOnly('get_order', { order_id: orderId });
+    return this.spec.funcResToNative('get_order', retval) as Order;
   }
 
-  private async simulateReadOnly(method: string, args: xdr.ScVal[]): Promise<xdr.ScVal> {
+  private async simulateReadOnly(method: string, args: object): Promise<xdr.ScVal> {
     const account = await this.server.getAccount(this.operatorKeypair.publicKey());
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
       networkPassphrase: this.networkPassphrase,
     })
-      .addOperation(this.contract.call(method, ...args))
+      .addOperation(this.contract.call(method, ...this.spec.funcArgsToScVals(method, args)))
       .setTimeout(30)
       .build();
 
@@ -114,15 +128,12 @@ export class SorobanService {
     return { hash: sent.hash };
   }
 
-  static addressArg(publicKey: string): xdr.ScVal {
-    return new Address(publicKey).toScVal();
-  }
-
-  static i128Arg(amount: string): xdr.ScVal {
-    return nativeToScVal(amount, { type: 'i128' });
-  }
-
-  static stringArg(value: string): xdr.ScVal {
-    return nativeToScVal(value, { type: 'string' });
+  /**
+   * Escala un monto decimal (ej. 30 USDC ingresado por voz) a la unidad mínima del asset antes de
+   * codificarlo como i128 para el contrato. USDC en Stellar usa 7 decimales, igual que XLM/stroops
+   * — el contrato y el SAC no saben nada de "USDC enteros", solo mueven la unidad mínima.
+   */
+  static toContractAmount(amount: number, decimals = 7): bigint {
+    return BigInt(Math.round(amount * 10 ** decimals));
   }
 }
