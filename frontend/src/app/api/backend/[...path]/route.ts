@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyFirebaseToken } from "@/lib/firebase-server";
+import { isSameOriginRequest } from "@/lib/same-origin";
 
 // ─── Helpers para tokens Firebase ─────────────────────────────────────────
 /** Firebase ID tokens son JWTs firmados por Google (RS256, iss = securetoken.google.com) */
@@ -48,10 +49,7 @@ async function handler(
       { message: "Ruta no disponible" },
       { status: 404 },
     );
-  if (
-    method !== "GET" &&
-    request.headers.get("origin") !== request.nextUrl.origin
-  )
+  if (method !== "GET" && !isSameOriginRequest(request))
     return NextResponse.json(
       { message: "Origen no permitido" },
       { status: 403 },

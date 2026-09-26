@@ -17,6 +17,9 @@ import {
 import { apiClient, errorMessage } from "@/services/api-client";
 import { parseIntent } from "@/lib/domain";
 import { connectNotifications, onEvent } from "@/lib/socket";
+import { playActivationChime } from "@/lib/chime";
+import { useMicPermission } from "@/hooks/use-mic-permission";
+import { useWakeWord } from "@/hooks/use-wake-word";
 import type {
   ConfirmableIntent,
   Order,
@@ -58,6 +61,20 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
   const discard = useRef(false);
   const pendingEvents = useRef(new Map<string, VoiceConfirmation>());
 
+  // "VoxPay" solo escucha mientras no hay nada más usando el micrófono, y solo una vez que el
+  // permiso ya está CONFIRMADO (Chrome exige que la primera solicitud venga de un clic real; ver
+  // use-mic-permission.ts). Al detectarla dispara el mismo record() que un clic manual.
+  const micPermission = useMicPermission();
+  const wakeWordEnabled =
+    stage === "idle" && micPermission === "granted" && connected && !!merchant?.operatorAuthorized;
+  console.log("[pos-view] wakeWordEnabled:", wakeWordEnabled, {
+    stage,
+    micPermission,
+    connected,
+    operatorAuthorized: merchant?.operatorAuthorized,
+  });
+  useWakeWord(record, wakeWordEnabled);
+
   const checkOrder = useCallback(async () => {
     if (!orderId.current) return;
     const requestedId = orderId.current;
@@ -91,6 +108,11 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
     }
   }, [merchant]);
   const acceptConfirmation = useCallback((payload: VoiceConfirmation) => {
+    if (payload.audioBase64) {
+      void new Audio(`data:audio/mpeg;base64,${payload.audioBase64}`)
+        .play()
+        .catch(() => {});
+    }
     const parsed =
       payload.status === "UNKNOWN" ? null : parseIntent(payload.intent);
     setTranscript(payload.transcript || "");
@@ -283,6 +305,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
         setStage("idle");
       };
       instance.start();
+      playActivationChime();
       setSeconds(0);
       setStage("recording");
     } catch (err) {

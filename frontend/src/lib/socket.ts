@@ -1,10 +1,10 @@
 import { io, type Socket } from "socket.io-client";
+import { auth } from "./firebase";
 export interface NotificationEvent {
   event: string;
   payload: unknown;
 }
 export function connectNotifications(merchantId: string): Socket {
-  // Current backend accepts merchantId. It must authenticate rooms before production.
   const base = (
     process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"
   ).replace(/\/$/, "");
@@ -12,6 +12,13 @@ export function connectNotifications(merchantId: string): Socket {
     query: { merchantId },
     autoConnect: false,
     reconnectionAttempts: 8,
+    // Función en vez de un token fijo: socket.io-client la vuelve a invocar en cada intento de
+    // reconexión, así el token nunca queda vencido (el SDK de Firebase cachea y refresca solo
+    // `getIdToken()`). El backend lo valida en `NotificationsGateway.handleConnection`.
+    auth: async (cb) => {
+      const token = await auth.currentUser?.getIdToken();
+      cb({ token });
+    },
   });
 }
 export function onEvent(

@@ -9,6 +9,11 @@ import { OrdersService } from './orders.service.js';
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
+  @Get('v1/orders')
+  findAll(@CurrentTenant() tenantId: string) {
+    return this.orders.findAllForTenant(tenantId);
+  }
+
   @Get('v1/orders/:id')
   findOne(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.orders.findByIdForTenant(id, tenantId);

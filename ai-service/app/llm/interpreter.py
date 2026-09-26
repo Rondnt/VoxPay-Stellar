@@ -16,6 +16,10 @@ sin texto adicional fuera del JSON:
  "amount": number|null, "asset": string|null, "order_ref": string|null,
  "splits": [{"recipient_alias": string, "amount": number, "type": "tip"|"share"}],
  "confidence": number entre 0 y 1}
+VoxPay solo opera en USDC — es el único asset que el negocio puede cobrar. Si el comerciante dice
+"dólares", "USD", "plata", "soles" o cualquier palabra genérica para dinero, poné siempre
+"asset": "USDC" (nunca "USD" ni ninguna otra variante); no le pidas al comerciante que diga "USDC"
+explícitamente, nadie habla así en la vida real.
 Si no podés determinar la intención con seguridad, respondé intent="unknown" con confidence baja en
 lugar de adivinar montos o destinatarios."""
 

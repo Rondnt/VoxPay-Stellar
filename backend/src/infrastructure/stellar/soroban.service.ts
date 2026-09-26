@@ -64,7 +64,12 @@ export class SorobanService {
     return this.submit(prepared);
   }
 
-  /** Arma el XDR sin firmar de pay()/set_operator(), para que el cliente lo firme con su wallet. */
+  /**
+   * Arma el XDR sin firmar de pay()/set_operator(), para que el cliente lo firme con su wallet.
+   * Ventana larga (10 min, no los 30s de los otros builders): acá el firmante es una persona real
+   * abriendo Freighter/xBull, no el backend firmando al toque — 30s expira (`txTooLate`) antes de que
+   * alguien alcance a leer la transacción y confirmarla. Verificado en Etapa 3.5 con una firma real.
+   */
   async buildUnsignedInvocation(
     sourcePublicKey: string,
     method: string,
@@ -76,7 +81,7 @@ export class SorobanService {
       networkPassphrase: this.networkPassphrase,
     })
       .addOperation(this.contract.call(method, ...this.spec.funcArgsToScVals(method, args)))
-      .setTimeout(30)
+      .setTimeout(600)
       .build();
 
     const prepared = await this.server.prepareTransaction(tx);

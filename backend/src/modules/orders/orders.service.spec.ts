@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import { describe, expect, it, vi } from 'vitest';
+import type { MerchantsService } from '../merchants/merchants.service.js';
 import type { Recipient, RecipientsRepository } from '../recipients/recipients.repository.js';
 import type { Order, OrdersRepository } from './orders.repository.js';
 import { OrdersService } from './orders.service.js';
@@ -35,9 +36,10 @@ function buildOrder(overrides: Partial<Order> = {}): Order {
 function buildService() {
   const repository = { create: vi.fn() } as unknown as OrdersRepository;
   const recipients = { findByAlias: vi.fn() } as unknown as RecipientsRepository;
+  const merchants = { findByTenant: vi.fn() } as unknown as MerchantsService;
   const queue = { add: vi.fn() } as unknown as Queue;
-  const service = new OrdersService(repository, recipients, queue);
-  return { service, repository, recipients, queue };
+  const service = new OrdersService(repository, recipients, merchants, queue);
+  return { service, repository, recipients, merchants, queue };
 }
 
 describe('OrdersService.createFromIntent', () => {

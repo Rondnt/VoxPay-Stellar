@@ -80,6 +80,15 @@ export class OrdersRepository {
     return snapshot.empty ? null : this.toEntity(snapshot.docs[0]);
   }
 
+  /** Requiere el índice compuesto `merchantId ASC, createdAt DESC` (ver firestore.indexes.json). */
+  async findAllByMerchant(merchantId: string): Promise<Order[]> {
+    const snapshot = await this.collection
+      .where('merchantId', '==', merchantId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    return snapshot.docs.map((doc) => this.toEntity(doc));
+  }
+
   /**
    * Auto-ID (nunca compuesto). La unicidad de `(merchantId, orderRef)` no la da el ID del doc como en
    * Recipients, así que se valida con una transacción: leer + escribir atómico. Requiere el índice

@@ -1309,6 +1309,39 @@ es parte permanente del repo.
 
 Cada etapa conecta una parte del frontend con los contratos de la Fase 1. Se divide en 6 etapas.
 
+**Actualización — el frontend real diverge de este plan**: Guillermo implementó el frontend completo
+en su propia rama (`guillermo/frontend`, mergeada a `main`) sin seguir estas etapas línea por línea —
+las tareas de abajo quedan como referencia histórica del diseño original, no como lo que hay que
+ejecutar. Diferencias reales importantes:
+
+- **Auth**: no es `POST /v1/auth/login` + cookie manual (Etapa 4.2) — es **Firebase Auth** (email/password
+  y Google, `frontend/src/lib/firebase.ts` + `login-form.tsx`). El ID token de Firebase se manda como
+  `voxpay_session` (cookie httpOnly) y se reenvía tal cual al backend vía un proxy interno
+  (`frontend/src/app/api/backend/[...path]/route.ts`) que distingue un JWT propio de un Firebase ID token
+  decodificando el `iss` del payload.
+- **Backend, bridge agregado**: el backend original solo entendía sus propios JWT (`passport-jwt`). Se
+  reescribió `AuthService.resolveUser(token)` (`backend/src/modules/auth/auth.service.ts`) para aceptar
+  ambos: si es un Firebase ID token, lo verifica con `getAuth().verifyIdToken()` (`firebase-admin/auth`,
+  ya usado para Firestore) y, la primera vez que ve un `firebaseUid` nuevo, **auto-provisiona** tenant +
+  user + merchant (patrón de onboarding self-serve — el merchant arranca con un keypair de Stellar al
+  azar como placeholder, igual que `scripts/seed.ts`, hasta que el dueño conecte su wallet real).
+  `JwtAuthGuard` y `NotificationsGateway.handleConnection` pasaron a usar este método único; se sacó
+  `passport`/`passport-jwt`/`@nestjs/passport` del todo (quedaron sin uso). Requiere que
+  `FIREBASE_PROJECT_ID` (backend) y `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (frontend) sean el mismo valor —
+  si no, `verifyIdToken` rechaza el token por `aud` inválido. **Bug real encontrado y corregido en el
+  camino**: `FIREBASE_AUTH_EMULATOR_HOST` faltaba en el schema de `env.validation.ts` (zod) — `@nestjs/
+  config` igual lo dejaba en `process.env`, pero sin declararlo ahí no había garantía; se agregó como
+  opcional junto a `FIRESTORE_EMULATOR_HOST`.
+- **Gap conocido, no corregido todavía**: `frontend/src/lib/socket.ts` conecta el WebSocket de
+  notificaciones sin mandar ningún token (`connectNotifications` no setea `socket.auth`), así que
+  `NotificationsGateway.handleConnection` siempre lo desconecta por falta de credencial — el banner
+  "Conectando notificaciones" del POS se queda pegado. El fix es del lado del frontend (pasar
+  `auth: { token: await currentUser.getIdToken() }` antes de `socket.connect()` en `pos-view.tsx` /
+  `dashboard-view.tsx`), fuera del alcance de "que el backend reconozca Firebase" — pendiente de decisión.
+- **Verificado con Playwright real** (no solo el código): registro por Firebase → `/pos` sin el banner de
+  "cuenta no vinculada" → `/dashboard` trae datos reales (`0.00 USDC`, `0 pedidos`, merchant recién
+  provisionado) → 4/4 tests e2e del backend (login propio, no-Firebase) siguen pasando.
+
 ### Etapa 4.1 — Cliente tipado y socket
 
 **Tareas**:

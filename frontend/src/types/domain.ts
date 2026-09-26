@@ -41,6 +41,7 @@ export interface VoiceConfirmation {
   transcript: string;
   intent: unknown;
   status?: string;
+  audioBase64?: string;
 }
 export interface ConfirmableIntent {
   orderRef: string;

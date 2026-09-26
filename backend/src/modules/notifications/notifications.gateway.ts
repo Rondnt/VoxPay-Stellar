@@ -1,10 +1,9 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { WebSocketGateway, WebSocketServer, type OnGatewayConnection } from '@nestjs/websockets';
 import { Redis } from 'ioredis';
 import type { Server, Socket } from 'socket.io';
-import type { JwtPayload } from '../auth/strategies/jwt.strategy.js';
+import { AuthService } from '../auth/auth.service.js';
 import { MerchantsService } from '../merchants/merchants.service.js';
 
 /**
@@ -23,7 +22,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnModuleInit, 
 
   constructor(
     config: ConfigService,
-    private readonly jwt: JwtService,
+    private readonly authService: AuthService,
     private readonly merchants: MerchantsService,
   ) {
     this.subscriber = new Redis(config.getOrThrow<string>('REDIS_URL'));
@@ -41,7 +40,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnModuleInit, 
     this.subscriber.disconnect();
   }
 
-  /** Autentica con el mismo JWT que la API REST; el merchantId nunca se confía del cliente. */
+  /** Misma resolución de token que la API REST (JWT propio o Firebase); el merchantId nunca se confía del cliente. */
   async handleConnection(socket: Socket): Promise<void> {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) {
@@ -50,7 +49,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnModuleInit, 
     }
 
     try {
-      const payload = await this.jwt.verifyAsync<JwtPayload>(token);
+      const payload = await this.authService.resolveUser(token);
       const merchant = await this.merchants.findByTenant(payload.tenantId);
       void socket.join(merchant.id);
     } catch (error) {

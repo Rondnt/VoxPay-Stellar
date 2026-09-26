@@ -18,6 +18,7 @@ export interface VoiceIntent {
 export interface AgentProvider {
   transcribe(audio: Buffer, filename: string): Promise<string>;
   interpret(transcript: string): Promise<VoiceIntent>;
+  speak(text: string): Promise<Buffer>;
 }
 
 export const AGENT_PROVIDER = Symbol('AGENT_PROVIDER');

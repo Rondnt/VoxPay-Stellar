@@ -1,7 +1,11 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { AGENT_PROVIDER, type AgentProvider } from '../../infrastructure/agent/agent-provider.interface.js';
+import {
+  AGENT_PROVIDER,
+  type AgentProvider,
+  type VoiceIntent,
+} from '../../infrastructure/agent/agent-provider.interface.js';
 import { FirestoreService } from '../../infrastructure/firestore/firestore.service.js';
 import { QUEUE_NAMES } from '../../infrastructure/queue/queue.constants.js';
 import { NotificationsPublisher } from '../notifications/notifications.publisher.js';
@@ -61,10 +65,21 @@ export class VoiceAgentProcessor extends WorkerHost {
       status,
     });
 
+    // El TTS es un plus (respuesta hablada); si Raven/Edge TTS falla no debe tirar abajo la
+    // confirmación por texto, que es la que de verdad hace falta para poder cobrar.
+    let audioBase64: string | undefined;
+    try {
+      const speechAudio = await this.agent.speak(buildConfirmationText(status, intent));
+      audioBase64 = speechAudio.toString('base64');
+    } catch (error) {
+      this.logger.warn(`TTS failed for command ${doc.id}: ${(error as Error).message}`);
+    }
+
     await this.notifications.publish(merchantId, 'voice:confirmation', {
       commandId: doc.id,
       transcript,
       intent,
+      audioBase64,
     });
   }
 
@@ -73,4 +88,16 @@ export class VoiceAgentProcessor extends WorkerHost {
   onFailed(job: Job<VoiceCommandJobData> | undefined, error: Error): void {
     this.logger.error(`interpret job ${job?.id} (command ${job?.data.commandId}) failed: ${error.message}`);
   }
+}
+
+/** Respuesta hablada tras interpretar el audio — plantilla fija, no generada por el LLM, para no
+ * arriesgar que alucine un monto o un pedido distinto al que ya se guardó. */
+function buildConfirmationText(status: 'PENDING' | 'UNKNOWN', intent: VoiceIntent): string {
+  if (status === 'UNKNOWN' || intent.intent !== 'create_order' || !intent.amount || !intent.orderRef) {
+    return 'No entendí bien el cobro. Repetí el importe, el pedido y a quién repartir, por favor.';
+  }
+  const splitsText = intent.splits.length
+    ? ` repartiendo ${intent.splits.map((split) => `${split.amount} USDC a ${split.recipientAlias}`).join(' y ')}`
+    : '';
+  return `Vas a cobrar ${intent.amount} USDC por el pedido ${intent.orderRef}${splitsText}. Confirmá para continuar.`;
 }

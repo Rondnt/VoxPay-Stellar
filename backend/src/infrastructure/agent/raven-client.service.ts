@@ -55,4 +55,16 @@ export class RavenClient implements AgentProvider {
       confidence: body.confidence,
     };
   }
+
+  async speak(text: string): Promise<Buffer> {
+    const res = await fetch(`${this.baseUrl}/speak`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      throw new Error(`Raven /speak failed: ${res.status}`);
+    }
+    return Buffer.from(await res.arrayBuffer());
+  }
 }

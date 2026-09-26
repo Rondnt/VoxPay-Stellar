@@ -11,6 +11,9 @@ export const envSchema = z.object({
   FIREBASE_PROJECT_ID: z.string().min(1),
   // Solo local: si está seteada, el Admin SDK se conecta al emulador sin credenciales.
   FIRESTORE_EMULATOR_HOST: z.string().min(1).optional(),
+  // Solo local: si está seteada, `getAuth().verifyIdToken()` valida contra el Auth Emulator en vez
+  // de las claves públicas reales de Google (ver AuthService.resolveFirebaseUser).
+  FIREBASE_AUTH_EMULATOR_HOST: z.string().min(1).optional(),
   // Solo producción/staging (sin emulador): JSON del service account.
   FIREBASE_SERVICE_ACCOUNT: z.string().min(1).optional(),
 
