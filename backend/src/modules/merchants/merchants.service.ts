@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { StrKey } from '@stellar/stellar-sdk';
 import type { DocumentData, DocumentSnapshot } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
 import { FirestoreService } from '../../infrastructure/firestore/firestore.service.js';
@@ -39,6 +40,26 @@ export class MerchantsService {
     const doc = await this.collection.doc(id).get();
     if (!doc.exists) throw new NotFoundException('Merchant not found');
     return this.toEntity(doc);
+  }
+
+  /**
+   * Reemplaza el stellarAddress placeholder (generado al azar en el auto-provisioning, ver
+   * auth.service.ts) por la wallet real que el comerciante conectó. Bloqueado una vez que
+   * operatorAuthorized es true: el contrato ya asoció esa dirección específica al operador vía
+   * set_operator, así que cambiarla después dejaría la DB desincronizada de la cadena.
+   */
+  async registerWallet(tenantId: string, stellarAddress: string): Promise<Merchant> {
+    if (!StrKey.isValidEd25519PublicKey(stellarAddress)) {
+      throw new BadRequestException('La dirección de Stellar no es válida');
+    }
+    const merchant = await this.findByTenant(tenantId);
+    if (merchant.operatorAuthorized) {
+      throw new ForbiddenException(
+        'La wallet de este negocio ya fue autorizada y no se puede cambiar',
+      );
+    }
+    await this.collection.doc(merchant.id).update({ stellarAddress });
+    return this.findById(merchant.id);
   }
 
   /** Arma el XDR sin firmar de set_operator(merchant, operator); lo firma el comerciante con su wallet. */

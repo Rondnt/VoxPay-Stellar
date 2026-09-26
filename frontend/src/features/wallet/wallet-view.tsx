@@ -33,10 +33,16 @@ export function WalletView() {
       const wallet = await import("@/lib/wallet");
       const value = await wallet.connectWallet();
       await wallet.assertWallet(value);
-      if (value !== merchant?.stellarAddress)
-        throw new Error(
-          "Esta cuenta no corresponde al negocio. Selecciona la wallet registrada.",
-        );
+      if (value !== merchant?.stellarAddress) {
+        if (merchant?.operatorAuthorized)
+          throw new Error(
+            "Esta cuenta no corresponde al negocio. Selecciona la wallet registrada.",
+          );
+        await apiClient.patch<Merchant>("/v1/merchants/wallet", {
+          stellarAddress: value,
+        });
+        await refresh();
+      }
       setAddress(value);
       setStage("review");
     } catch (err) {
@@ -128,7 +134,7 @@ export function WalletView() {
                     ? "Esperamos la respuesta del servidor. No vuelvas a enviar la transacción."
                     : stage === "uncertain"
                       ? "Consulta el estado antes de volver a firmar. La transacción podría haberse enviado."
-                      : "Usa la cuenta de Stellar registrada para tu negocio. La conexión no autoriza todavía al operador."}
+                      : "Conecta la wallet que vas a usar para tu negocio. La primera vez que conectes queda registrada como tu cuenta; después no se podrá cambiar. La conexión no autoriza todavía al operador."}
           </Notice>
           {failure && <Notice error>{failure}</Notice>}
           {confirmed ? (
