@@ -2,7 +2,17 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, Menu, X, Wallet, LogOut } from "lucide-react";
+import {
+  ChevronDown,
+  Menu,
+  X,
+  Wallet,
+  LogOut,
+  Mic,
+  ClipboardList,
+  Users,
+  LayoutDashboard,
+} from "lucide-react";
 import { Brand, NetworkBadge, Notice, Button } from "./ui";
 import { useResource } from "@/hooks/use-resource";
 import { apiClient, errorMessage } from "@/services/api-client";
@@ -14,10 +24,11 @@ const MerchantContext = createContext<{
 }>({ merchant: null, refresh: async () => {} });
 export const useMerchant = () => useContext(MerchantContext);
 const navigation = [
-  ["/pos", "POS por voz"],
-  ["/orders", "Pedidos"],
-  ["/recipients", "Destinatarios"],
-  ["/dashboard", "Dashboard"],
+  { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
+  { href: "/pos", label: "Nuevo cobro", Icon: Mic },
+  { href: "/orders", label: "Pedidos", Icon: ClipboardList },
+  { href: "/recipients", label: "Destinatarios", Icon: Users },
+  { href: "/wallet", label: "Wallet del negocio", Icon: Wallet },
 ];
 export function MerchantShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -32,11 +43,11 @@ export function MerchantShell({ children }: { children: ReactNode }) {
   } = useResource<Merchant>("/v1/merchants/me");
   async function logout() {
     try {
-      const [{ auth }, { signOut }] = await Promise.all([
+      const [{ getFirebaseAuth }, { signOut }] = await Promise.all([
         import("@/lib/firebase"),
         import("firebase/auth"),
       ]);
-      await signOut(auth);
+      await signOut(getFirebaseAuth());
       await apiClient.post("/v1/auth/logout");
       router.replace("/login");
       router.refresh();
@@ -59,21 +70,9 @@ export function MerchantShell({ children }: { children: ReactNode }) {
           if (e.key === "Escape") close();
         }}
       >
-        <Link href="/pos" aria-label="VoxPay, ir al POS" onClick={close}>
+        <Link href="/dashboard" aria-label="VoxPay, ir al Dashboard" onClick={close}>
           <Brand />
         </Link>
-        <nav className="desktop-nav" aria-label="Navegación principal">
-          {navigation.map(([href, label]) => (
-            <Link
-              key={href}
-              href={href}
-              className={pathname.startsWith(href) ? "active" : ""}
-              aria-current={pathname.startsWith(href) ? "page" : undefined}
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
         <div className="header-actions">
           <NetworkBadge />
           <div className="account-wrap">
@@ -116,33 +115,48 @@ export function MerchantShell({ children }: { children: ReactNode }) {
             className="mobile-nav"
             aria-label="Navegación móvil"
           >
-            {[...navigation, ["/wallet", "Wallet del negocio"]].map(
-              ([href, label]) => (
-                <Link
-                  onClick={close}
-                  key={href}
-                  href={href}
-                  aria-current={pathname.startsWith(href) ? "page" : undefined}
-                >
-                  {label}
-                </Link>
-              ),
-            )}
+            {navigation.map(({ href, label, Icon }) => (
+              <Link
+                onClick={close}
+                key={href}
+                href={href}
+                aria-current={pathname.startsWith(href) ? "page" : undefined}
+              >
+                <Icon size={22} aria-hidden="true" />
+                {label}
+              </Link>
+            ))}
             <button onClick={logout}>Cerrar sesión</button>
           </nav>
         )}
       </header>
-      <main id="main" className="workspace">
-        {(!!error || logoutError) && (
-          <Notice error title="No se pudo cargar la cuenta">
-            <p>{logoutError || errorMessage(error)}</p>
-            <Button variant="secondary" onClick={refresh}>
-              Reintentar
-            </Button>
-          </Notice>
-        )}
-        {children}
-      </main>
+      <div className="app-body">
+        <aside className="sidebar">
+          <nav className="desktop-nav" aria-label="Navegación principal">
+            {navigation.map(({ href, label, Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                aria-current={pathname.startsWith(href) ? "page" : undefined}
+              >
+                <Icon size={22} aria-hidden="true" />
+                {label}
+              </Link>
+            ))}
+          </nav>
+        </aside>
+        <main id="main" className="workspace">
+          {(!!error || logoutError) && (
+            <Notice error title="No se pudo cargar la cuenta">
+              <p>{logoutError || errorMessage(error)}</p>
+              <Button variant="secondary" onClick={refresh}>
+                Reintentar
+              </Button>
+            </Notice>
+          )}
+          {children}
+        </main>
+      </div>
     </MerchantContext.Provider>
   );
 }

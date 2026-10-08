@@ -2,9 +2,11 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { getFirebaseAuth } from "@/lib/firebase";
 import { firebaseAuthError } from "@/lib/firebase-auth";
-import { Brand, Button } from "@/components/ui";
+import { Button, Notice } from "@/components/ui";
+import { AuthLayout } from "@/components/auth-layout";
+import { Mail } from "lucide-react";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -21,7 +23,7 @@ export default function ForgotPasswordPage() {
     setBusy(true);
     setError("");
     try {
-      await sendPasswordResetEmail(auth, email.trim());
+      await sendPasswordResetEmail(getFirebaseAuth(), email.trim());
       setSent(true);
     } catch (err) {
       if (
@@ -37,22 +39,22 @@ export default function ForgotPasswordPage() {
     }
   }
   return (
-    <main className="login-page">
-      <Brand login />
-      <section className="login-card">
-        <div className="login-card-header">
-          <h1>Recupera tu acceso</h1>
-          <p>Te enviaremos las instrucciones a tu correo.</p>
-        </div>
-        {sent ? (
-          <p role="status">
-            Si este correo tiene una cuenta, recibirás un enlace para cambiar tu
-            contraseña. Revisa también la carpeta de spam.
-          </p>
-        ) : (
-          <form onSubmit={submit} className="login-form-stack" noValidate>
-            <div className="field">
-              <label htmlFor="email">Correo electrónico</label>
+    <AuthLayout>
+      <div className="login-card-header">
+        <h1>Recupera tu acceso</h1>
+        <p>Te enviaremos las instrucciones a tu correo.</p>
+      </div>
+      {sent ? (
+        <Notice success>
+          Si este correo tiene una cuenta, recibirás un enlace para cambiar tu
+          contraseña. Revisa también la carpeta de spam.
+        </Notice>
+      ) : (
+        <form onSubmit={submit} className="login-form-stack" noValidate>
+          <div className="field">
+            <label htmlFor="email">Correo electrónico</label>
+            <div className="input-icon-field">
+              <Mail size={20} aria-hidden="true" />
               <input
                 id="email"
                 type="email"
@@ -63,16 +65,16 @@ export default function ForgotPasswordPage() {
                 required
               />
             </div>
-            {error && <p role="alert">{error}</p>}
-            <Button type="submit" busy={busy}>
-              Enviar instrucciones
-            </Button>
-          </form>
-        )}
-        <Link href="/login" className="login-register-link">
-          Volver a iniciar sesión
-        </Link>
-      </section>
-    </main>
+          </div>
+          {error && <Notice error>{error}</Notice>}
+          <Button type="submit" busy={busy}>
+            Enviar instrucciones
+          </Button>
+        </form>
+      )}
+      <Link href="/login" className="login-register-link">
+        Volver a iniciar sesión
+      </Link>
+    </AuthLayout>
   );
 }

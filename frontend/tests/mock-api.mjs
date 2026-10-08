@@ -106,6 +106,17 @@ const server = createServer(async (req, res) => {
       stellarAddress: address,
       operatorAuthorized: true,
     });
+  if (path === "/v1/merchants/wallet" && req.method === "PATCH") {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    return send(200, {
+      id: "merchant-test",
+      tenantId: "tenant-test",
+      stellarAddress: body.stellarAddress,
+      operatorAuthorized: false,
+    });
+  }
   if (path === "/v1/analytics/today")
     return failAnalytics
       ? send(503, { message: "Unavailable" })
@@ -127,23 +138,21 @@ const server = createServer(async (req, res) => {
     send(201, { commandId: "voice-test" });
     setTimeout(
       () =>
-        io
-          .of("/notifications")
-          .emit("event", {
-            event: "voice:confirmation",
-            payload: {
-              commandId: "voice-test",
-              transcript:
-                "Cobra 30 USDC por el pedido 10 y reparte 5 USDC a José",
-              intent: {
-                intent: "create_order",
-                order_ref: "10",
-                amount: 30,
-                splits: [{ recipient_alias: "José", amount: 5 }],
-                confidence: 0.99,
-              },
+        io.of("/notifications").emit("event", {
+          event: "voice:confirmation",
+          payload: {
+            commandId: "voice-test",
+            transcript:
+              "Cobra 30 USDC por el pedido 10 y reparte 5 USDC a José",
+            intent: {
+              intent: "create_order",
+              order_ref: "10",
+              amount: 30,
+              splits: [{ recipient_alias: "José", amount: 5 }],
+              confidence: 0.99,
             },
-          }),
+          },
+        }),
       250,
     );
     return;
@@ -153,12 +162,10 @@ const server = createServer(async (req, res) => {
     send(201, orders[0]);
     setTimeout(
       () =>
-        io
-          .of("/notifications")
-          .emit("event", {
-            event: "order:created",
-            payload: { orderId: orders[0].id, hash },
-          }),
+        io.of("/notifications").emit("event", {
+          event: "order:created",
+          payload: { orderId: orders[0].id, hash },
+        }),
       200,
     );
     return;

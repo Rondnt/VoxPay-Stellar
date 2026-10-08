@@ -5,11 +5,11 @@ import {
   setPersistence,
   type User,
 } from "firebase/auth";
-import { auth } from "./firebase";
+import { getFirebaseAuth } from "./firebase";
 
 export async function prepareFirebaseLogin(remember: boolean) {
   await setPersistence(
-    auth,
+    getFirebaseAuth(),
     remember ? browserLocalPersistence : browserSessionPersistence,
   );
 }

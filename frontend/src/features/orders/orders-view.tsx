@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Search } from "lucide-react";
+import { Search, Mic } from "lucide-react";
 import {
   Button,
   ButtonLink,
@@ -35,8 +35,9 @@ export function OrdersView() {
         title="Pedidos"
         description="Consulta el estado de tus cobros."
         action={
-          <ButtonLink secondary href="/pos">
+          <ButtonLink href="/pos">
             Nuevo cobro
+            <Mic size={22} aria-hidden="true" />
           </ButtonLink>
         }
       />
@@ -74,6 +75,7 @@ export function OrdersView() {
         </EmptyState>
       ) : !orders.length ? (
         <EmptyState
+          pose={query || status ? "detective" : "greeting"}
           title={
             query || status ? "No encontramos pedidos" : "Aún no tienes pedidos"
           }

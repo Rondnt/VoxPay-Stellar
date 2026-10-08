@@ -1,7 +1,18 @@
 "use client";
-import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle, Clock, Copy, LoaderCircle, Square } from "lucide-react";
+import {
+  CheckCircle,
+  Clock,
+  Copy,
+  LoaderCircle,
+  Square,
+  Mic,
+  FileText,
+  ArrowRight,
+  AudioLines,
+} from "lucide-react";
+import { VoxiScene } from "@/components/voxi";
+import { PaymentProgress } from "@/components/payment-progress";
 import { QRCodeSVG } from "qrcode.react";
 import { useMerchant } from "@/components/merchant-shell";
 import {
@@ -50,6 +61,8 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
   const [failure, setFailure] = useState("");
   const [seconds, setSeconds] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [examplesOpen, setExamplesOpen] = useState(false);
+  const [editingInstruction, setEditingInstruction] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState("");
   const [audio, setAudio] = useState<Blob | null>(null);
   const commandId = useRef("");
@@ -66,7 +79,10 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
   // use-mic-permission.ts). Al detectarla dispara el mismo record() que un clic manual.
   const micPermission = useMicPermission();
   const wakeWordEnabled =
-    stage === "idle" && micPermission === "granted" && connected && !!merchant?.operatorAuthorized;
+    stage === "idle" &&
+    micPermission === "granted" &&
+    connected &&
+    !!merchant?.operatorAuthorized;
   console.log("[pos-view] wakeWordEnabled:", wakeWordEnabled, {
     stage,
     micPermission,
@@ -125,6 +141,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
       return;
     }
     setIntent(parsed);
+    setEditingInstruction(false);
     setStage("review");
     setFailure("");
   }, []);
@@ -378,98 +395,155 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
     setTranscript("");
     setFailure("");
     setStage("idle");
+    setCopied(false);
+    setEditingInstruction(false);
     window.history.replaceState(null, "", "/pos");
   }
 
   if (["qr", "paid", "cancelled"].includes(stage) && order)
     return (
       <>
-        <Card className="qr-card">
-          <div className="qr-heading">
+        <div className="page-heading">
+          <div>
             <h1>
               {stage === "paid"
                 ? "¡Pago recibido!"
                 : stage === "cancelled"
                   ? "Pedido cancelado"
-                  : "Escanea para pagar"}
+                  : "Cobro listo"}
             </h1>
-            <p>Pedido {order.orderRef}</p>
+            <p>
+              {stage === "qr"
+                ? "Comparte el QR con tu cliente para recibir el pago."
+                : "Consulta el estado y el reparto de tu cobro."}
+            </p>
           </div>
-          {stage === "qr" && paymentUrl && (
-            <div className="qr-box">
-              <QRCodeSVG
-                value={paymentUrl}
-                size={240}
-                level="M"
-                title={`Pagar pedido ${order.orderRef}`}
-              />
-            </div>
-          )}
-          {stage === "paid" && <CheckCircle size={72} aria-hidden="true" />}
-          <Amount compact value={order.amount} />
-          <span className="badge">
-            {stage === "qr" && <Clock size={20} />}
-            {stage === "paid"
-              ? "Pago confirmado"
-              : stage === "cancelled"
-                ? "Cancelado"
-                : "Esperando pago"}
-          </span>
-          <p className="center">
-            {stage === "qr"
-              ? "La pantalla se actualizará al recibir el pago."
-              : stage === "paid"
-                ? "El reparto se realizó según tu pedido."
-                : "Este cobro ya no admite pagos."}
-          </p>
-          {failure && <Notice error>{failure}</Notice>}
-          {stage === "qr" ? (
-            <Button className="full" variant="secondary" onClick={copyLink}>
-              <Copy size={18} />
-              {copied ? "Enlace copiado" : "Copiar enlace de pago"}
-            </Button>
-          ) : (
-            <Button onClick={newOrder}>Nuevo cobro</Button>
-          )}
-          <Splits splits={order.splitsJson ?? []} amount={order.amount} />
-          <TransactionLink hash={order.payTxHash} />
-        </Card>
-        <div className="qr-links">
-          {stage === "qr" && (
-            <a
-              className="text-link"
-              href={paymentUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+        </div>
+        <PaymentProgress step={2} />
+        <div className="pos-columns">
+          <Card className="qr-card">
+            <span
+              className={
+                "badge " +
+                (stage === "paid"
+                  ? "badge-paid"
+                  : stage === "cancelled"
+                    ? "badge-cancelled"
+                    : "badge-pending")
+              }
             >
-              Abrir enlace de pago
-            </a>
-          )}
-          <ButtonLink secondary href={`/orders/${order.id}`}>
-            Ver detalle del pedido
-          </ButtonLink>
+              {stage === "qr" && <Clock size={16} aria-hidden="true" />}
+              {stage === "paid"
+                ? "Pago confirmado"
+                : stage === "cancelled"
+                  ? "Cancelado"
+                  : "Esperando pago"}
+            </span>
+            <div className="qr-heading">
+              <h2>
+                {stage === "qr"
+                  ? "Escanea para pagar"
+                  : "Pedido " + order.orderRef}
+              </h2>
+            </div>
+            {stage === "qr" && paymentUrl ? (
+              <>
+                <div className="qr-box">
+                  <QRCodeSVG
+                    value={paymentUrl}
+                    size={240}
+                    level="M"
+                    title={"Pagar pedido " + order.orderRef}
+                  />
+                </div>
+                <div className="qr-status">
+                  <VoxiScene pose="waiting" />
+                  <p>La pantalla se actualizará al recibir el pago.</p>
+                </div>
+                <Button className="full" variant="secondary" onClick={copyLink}>
+                  <Copy size={18} />
+                  {copied ? "Enlace copiado" : "Copiar enlace de pago"}
+                </Button>
+                <a
+                  className="text-link"
+                  href={paymentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Abrir enlace de pago
+                </a>
+              </>
+            ) : (
+              <>
+                <VoxiScene
+                  pose={stage === "paid" ? "celebrating" : "stopping"}
+                />
+                <Amount compact value={order.amount} />
+                <p className="center">
+                  {stage === "paid"
+                    ? "El reparto se realizó según tu pedido."
+                    : "Este cobro ya no admite pagos."}
+                </p>
+                <TransactionLink hash={order.payTxHash} />
+              </>
+            )}
+            {failure && <Notice error>{failure}</Notice>}
+          </Card>
+          <Card className="review-card">
+            <div>
+              <h2>Resumen del cobro</h2>
+              <p>Pedido {order.orderRef}</p>
+            </div>
+            <div>
+              <p>Total a cobrar</p>
+              <Amount value={order.amount} />
+            </div>
+            <hr />
+            <Splits splits={order.splitsJson ?? []} amount={order.amount} />
+            <div className="confirmation-actions stack">
+              {stage === "paid" && (
+                <Notice success>
+                  El pago figura como confirmado en el pedido.
+                </Notice>
+              )}
+              <Button onClick={newOrder}>
+                Nuevo cobro
+                <Mic size={20} aria-hidden="true" />
+              </Button>
+              <ButtonLink secondary href={"/orders/" + order.id}>
+                Ver detalle del pedido
+              </ButtonLink>
+            </div>
+          </Card>
         </div>
         <Footer />
       </>
     );
 
+  const recording = stage === "recording";
+  const processing = ["uploading", "interpreting", "permission"].includes(
+    stage,
+  );
   return (
-    <>
-      <div className="page-heading pos-heading">
-        <div>
-          <h1>Nuevo cobro</h1>
-          <p>Habla, revisa y confirma tus cobros</p>
+    <div className="pos-page pos-new-charge">
+      <div className="pos-intro">
+        <div className="page-heading pos-heading">
+          <div>
+            <h1>Nuevo cobro</h1>
+            <p>Habla, revisa y confirma tus cobros</p>
+          </div>
+          {merchant?.operatorAuthorized ? (
+            <span className="badge badge-paid">
+              <CheckCircle size={16} aria-hidden="true" />
+              Wallet configurada
+            </span>
+          ) : (
+            <ButtonLink secondary href="/wallet">
+              Configurar wallet
+            </ButtonLink>
+          )}
         </div>
-        {merchant?.operatorAuthorized ? (
-          <span className="badge">
-            <CheckCircle size={20} />
-            Wallet configurada
-          </span>
-        ) : (
-          <ButtonLink secondary href="/wallet">
-            Configurar wallet
-          </ButtonLink>
-        )}
+        <PaymentProgress step={intent ? 1 : 0} />
       </div>
       {!connected && (
         <Notice title="Conectando notificaciones">
@@ -477,37 +551,10 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
           de tu voz.
         </Notice>
       )}
-      <ol className="steps" aria-label="Progreso del cobro">
-        {["Voz", "Revisión", "Pago"].map((label, index) => (
-          <li
-            key={label}
-            aria-current={index === (intent ? 1 : 0) ? "step" : undefined}
-          >
-            <span className="step-symbol" aria-hidden="true">
-              {index === 0 && intent ? (
-                <Image src="/brand/53c04.svg" width={28} height={28} alt="" />
-              ) : (
-                <>
-                  <Image src="/brand/a1180.svg" width={28} height={28} alt="" />
-                  {index === (intent ? 1 : 0) && (
-                    <Image
-                      className="step-dot"
-                      src="/brand/c3fd5.svg"
-                      width={19}
-                      height={18}
-                      alt=""
-                    />
-                  )}
-                </>
-              )}
-            </span>
-            {label}
-          </li>
-        ))}
-      </ol>
       {failure && <Notice error>{failure}</Notice>}
       {stage === "creating" || stage === "uncertain" ? (
         <Card className="state-card">
+          <VoxiScene pose="thinking" />
           <LoaderCircle className="spin" aria-hidden="true" />
           <h2>
             {stage === "uncertain"
@@ -515,7 +562,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
               : "Preparando el cobro"}
           </h2>
           <p>
-            Esperamos la confirmación de Stellar antes de mostrar el QR. No
+            Estamos consultando el registro del cobro antes de mostrar el QR. No
             vuelvas a enviar este cobro.
           </p>
           <div className="row wrap">
@@ -528,82 +575,95 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
           </div>
         </Card>
       ) : (
-        <div className="pos-columns">
+        <div
+          className={
+            "pos-columns " + (intent && !editingInstruction ? "pos-review" : "")
+          }
+        >
           <Card className="voice-card">
-            <h2>Describe tu instrucción</h2>
-            <div className="voice-visual">
-              <button
-                className="mic-control"
-                aria-label={
-                  stage === "recording"
-                    ? "Detener grabación"
-                    : "Grabar instrucción"
-                }
-                disabled={
-                  ["uploading", "interpreting", "permission"].includes(stage) ||
-                  !merchant?.operatorAuthorized ||
-                  !connected
-                }
-                onClick={() =>
-                  stage === "recording"
-                    ? recorder.current?.stop()
-                    : void record()
-                }
+            <div className="voice-card-heading">
+              <h2>Habla con Voxi</h2>
+              <Button
+                variant="secondary"
+                onClick={() => setExamplesOpen(!examplesOpen)}
+                aria-expanded={examplesOpen}
+                aria-controls="voice-examples"
               >
-                <Image
-                  className="mic-disc"
-                  src="/brand/c2522.svg"
-                  width={165}
-                  height={157}
-                  alt=""
-                />
-                <Image
-                  className="mic-symbol"
-                  src="/brand/f31fb.svg"
-                  width={56}
-                  height={64}
-                  alt=""
-                />
-                <Image
-                  className="mic-ring"
-                  src="/brand/2ddf5.svg"
-                  width={200}
-                  height={200}
-                  alt=""
-                />
-              </button>
-              <div className="waves" aria-hidden="true">
-                <Image
-                  src="/brand/510d3.svg"
-                  width={61.75}
-                  height={55.4167}
-                  alt=""
-                />
-                <Image
-                  src="/brand/93cbc.svg"
-                  width={63.75}
-                  height={55.75}
-                  alt=""
-                />
-              </div>
-            </div>
-            <div className="transcript" aria-live="polite">
-              <strong>
-                {stage === "recording"
-                  ? `Grabando · ${seconds}s / 60s`
-                  : stage === "interpreting"
-                    ? "Interpretando tu instrucción…"
-                    : stage === "uploading"
-                      ? "Enviando audio…"
-                      : "Transcripción:"}
-              </strong>
+                <FileText size={20} aria-hidden="true" />
+                Ejemplos
+              </Button>
               <p>
-                {transcript ||
-                  "Prueba: «Cobra 30 USDC por el pedido 10 y reparte 5 USDC a José»."}
+                Indica el monto, el pedido y cómo repartir el pago entre las
+                personas.
               </p>
             </div>
-            {stage === "recording" ? (
-              <div className="stack">
+            {examplesOpen && (
+              <div id="voice-examples" className="examples-panel">
+                <strong>Prueba con una instrucción como esta</strong>
+                <p>«Cobra 30 USDC por el pedido 10 y reparte 5 USDC a José».</p>
+                <small>
+                  Usa un número de pedido nuevo y un alias guardado en
+                  Destinatarios. Los ejemplos no crean cobros.
+                </small>
+              </div>
+            )}
+            <div className="voice-visual">
+              <VoxiScene
+                large
+                pose={
+                  failure ? "confused" : processing ? "thinking" : "listening"
+                }
+              />
+              <button
+                className={"mic-control " + (recording ? "is-recording" : "")}
+                aria-label={
+                  recording ? "Detener grabación" : "Grabar instrucción"
+                }
+                disabled={
+                  processing || !merchant?.operatorAuthorized || !connected
+                }
+                onClick={() =>
+                  recording ? recorder.current?.stop() : void record()
+                }
+              >
+                {recording ? (
+                  <Square size={28} fill="currentColor" aria-hidden="true" />
+                ) : processing ? (
+                  <LoaderCircle size={32} className="spin" aria-hidden="true" />
+                ) : (
+                  <Mic size={36} aria-hidden="true" />
+                )}
+              </button>
+              <span className="voice-control-label">
+                {recording
+                  ? "Te escucho · " + seconds + "s / 60s"
+                  : processing
+                    ? "Preparando tu instrucción…"
+                    : transcript
+                      ? "Toca para volver a grabar"
+                      : "Toca para hablar"}
+              </span>
+            </div>
+            <div className="transcript" aria-live="polite">
+              <div>
+                <strong>
+                  {recording
+                    ? "Grabando tu instrucción"
+                    : stage === "interpreting"
+                      ? "Interpretando tu instrucción…"
+                      : stage === "uploading"
+                        ? "Enviando audio…"
+                        : "Transcripción de tu instrucción"}
+                </strong>
+                <p>
+                  {transcript ||
+                    "Tu instrucción aparecerá aquí después de grabar."}
+                </p>
+              </div>
+              <AudioLines size={40} aria-hidden="true" />
+            </div>
+            {recording && (
+              <div className="stack recording-actions">
                 <Button onClick={() => recorder.current?.stop()}>
                   <Square size={14} />
                   Detener y transcribir
@@ -612,24 +672,14 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
                   Cancelar grabación
                 </Button>
               </div>
-            ) : (
+            )}
+            {stage === "interpreting" && (
               <Button
-                variant="dark"
-                busy={["uploading", "permission"].includes(stage)}
-                disabled={
-                  !merchant?.operatorAuthorized ||
-                  !connected ||
-                  stage === "uploading" ||
-                  stage === "permission"
-                }
+                variant="secondary"
                 onClick={record}
+                disabled={!connected || !merchant?.operatorAuthorized}
               >
-                <Image src="/brand/9b258.svg" width={9} height={10} alt="" />
-                {transcript
-                  ? "Vuelve a grabar"
-                  : stage === "interpreting"
-                    ? "Volver a grabar"
-                    : "Grabar instrucción"}
+                Volver a grabar
               </Button>
             )}
             {audio && stage === "idle" && (
@@ -643,15 +693,18 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
             )}
           </Card>
           <Card className="review-card">
-            <div>
+            <div className="review-card-heading">
               <h2>Revisa el cobro</h2>
               <p>
                 {intent
-                  ? `Pedido ${intent.orderRef}`
+                  ? "Pedido " + intent.orderRef + " · Borrador"
                   : "Tu pedido aparecerá aquí"}
               </p>
             </div>
-            <div className="stack">
+            <div className="review-mobile-voxi">
+              <VoxiScene pose="presenting" />
+            </div>
+            <div className="review-total">
               <p>Total a cobrar</p>
               {intent ? (
                 <Amount value={intent.amount} />
@@ -671,24 +724,34 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
                 de confirmar.
               </p>
             )}
-            <hr />
-            <div className="stack">
-              <small>Al confirmar, prepararemos el cobro y su código QR.</small>
+            <div className="confirmation-actions stack">
+              <Notice>
+                Al confirmar, prepararemos el cobro y su código QR para que
+                puedas recibir el pago.
+              </Notice>
               <Button
-                variant="dark"
                 disabled={
                   !intent || stage !== "review" || !merchant?.operatorAuthorized
                 }
                 onClick={confirm}
               >
                 Confirmar cobro
-                <Image src="/brand/8a435.svg" width={24} height={24} alt="" />
+                <ArrowRight size={24} aria-hidden="true" />
               </Button>
+              {intent && (
+                <Button
+                  variant="secondary"
+                  className="review-edit-button"
+                  onClick={() => setEditingInstruction(true)}
+                >
+                  Editar instrucción
+                </Button>
+              )}
             </div>
           </Card>
         </div>
       )}
       <Footer />
-    </>
+    </div>
   );
 }

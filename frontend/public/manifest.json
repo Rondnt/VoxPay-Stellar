@@ -4,12 +4,12 @@
   "description": "POS inteligente por voz sobre Stellar",
   "start_url": "/pos",
   "display": "standalone",
-  "background_color": "#253745",
-  "theme_color": "#11212d",
+  "background_color": "#FFFFFF",
+  "theme_color": "#2C8A9D",
   "icons": [
     {
-      "src": "/brand/463ac.png",
-      "sizes": "any",
+      "src": "/brand/v2/voxpay-icon.png",
+      "sizes": "512x512",
       "type": "image/png"
     }
   ]

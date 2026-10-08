@@ -1,9 +1,19 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ExternalLink, LoaderCircle } from "lucide-react";
+import {
+  ExternalLink,
+  LoaderCircle,
+  Info,
+  CircleAlert,
+  CircleCheck,
+  UserRound,
+  Store,
+  X,
+} from "lucide-react";
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { explorerUrl, money, statusLabel } from "@/lib/domain";
 import type { OrderStatus, Split } from "@/types/domain";
+import { VoxiScene, type VoxiPose } from "./voxi";
 
 export function Button({
   className = "",
@@ -13,7 +23,7 @@ export function Button({
   disabled,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "dark";
+  variant?: "primary" | "secondary" | "dark" | "danger";
   busy?: boolean;
 }) {
   return (
@@ -77,24 +87,36 @@ export function Notice({
   title,
   children,
   error = false,
+  success = false,
 }: {
   title?: string;
   children: ReactNode;
   error?: boolean;
+  success?: boolean;
 }) {
   return (
     <div
-      className={`notice ${error ? "notice-error" : ""}`}
+      className={`notice ${error ? "notice-error" : success ? "notice-success" : ""}`}
       role={error ? "alert" : "status"}
     >
-      {title && <h3>{title}</h3>}
-      <div>{children}</div>
+      {error ? (
+        <CircleAlert size={22} aria-hidden="true" />
+      ) : success ? (
+        <CircleCheck size={22} aria-hidden="true" />
+      ) : (
+        <Info size={22} aria-hidden="true" />
+      )}
+      <div className="notice-content">
+        {title && <h3>{title}</h3>}
+        <div>{children}</div>
+      </div>
     </div>
   );
 }
 export function Loading({ label = "Cargando…" }: { label?: string }) {
   return (
     <Card className="state-card" aria-live="polite">
+      <VoxiScene pose="thinking" />
       <LoaderCircle className="spin" aria-hidden="true" />
       <h2>{label}</h2>
       <p>Estamos consultando la información.</p>
@@ -105,13 +127,16 @@ export function EmptyState({
   title,
   children,
   action,
+  pose = "confused",
 }: {
   title: string;
   children: ReactNode;
   action?: ReactNode;
+  pose?: VoxiPose;
 }) {
   return (
     <Card className="state-card">
+      <VoxiScene pose={pose} />
       <h2>{title}</h2>
       <p>{children}</p>
       {action}
@@ -122,14 +147,11 @@ export function Brand({ login = false }: { login?: boolean }) {
   return (
     <span className={login ? "login-logo" : "brand-logo"}>
       <Image
-        src={login ? "/brand/b571a.png" : "/brand/463ac.png"}
+        src="/brand/v2/voxpay-logo-transparent.png"
         alt="VoxPay"
-        fill
-        sizes={
-          login
-            ? "(max-width: 767px) 290px, 360px"
-            : "(max-width: 767px) 144px, 176px"
-        }
+        width={237}
+        height={119}
+        sizes="237px"
         priority
       />
     </span>
@@ -140,7 +162,14 @@ export function NetworkBadge() {
 }
 export function StatusBadge({ status }: { status: OrderStatus }) {
   return (
-    <span className={`badge ${status === "PAID" ? "badge-paid" : ""}`}>
+    <span className={`badge badge-${status.toLowerCase()}`}>
+      {status === "PAID" ? (
+        <CircleCheck size={16} aria-hidden="true" />
+      ) : status === "CANCELLED" ? (
+        <X size={16} aria-hidden="true" />
+      ) : (
+        <LoaderCircle size={16} aria-hidden="true" />
+      )}
       {statusLabel[status]}
     </span>
   );
@@ -173,6 +202,9 @@ export function Splits({
       <p>Reparto del pago</p>
       {splits.map((s, i) => (
         <div className="split" key={`${s.recipientAlias}-${i}`}>
+          <span className="split-avatar">
+            <UserRound size={22} aria-hidden="true" />
+          </span>
           <span>{s.recipientAlias}</span>
           <span>
             <strong>{money(s.amount)}</strong> <small>USDC</small>
@@ -180,6 +212,9 @@ export function Splits({
         </div>
       ))}
       <div className="split">
+        <span className="split-avatar">
+          <Store size={22} aria-hidden="true" />
+        </span>
         <span>Tu negocio</span>
         <span>
           <strong>{money(remainder)}</strong> <small>USDC</small>

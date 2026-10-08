@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   title: { default: "VoxPay", template: "%s · VoxPay" },
   description: "POS inteligente por voz sobre Stellar",
   manifest: "/manifest.json",
-  icons: { icon: "/brand/463ac.png" },
+  icons: { icon: "/brand/v2/voxpay-icon.png?v=84d47396d23c" },
 };
 export default function RootLayout({
   children,

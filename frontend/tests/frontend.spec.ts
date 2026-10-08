@@ -1,13 +1,62 @@
 import { test, expect, type Page } from "@playwright/test";
 import { parseIntent, explorerUrl, money } from "../src/lib/domain";
 const base = "http://localhost:3101";
+
+test("removed endpoints and obsolete sessions cannot bypass authentication", async ({
+  page,
+  context,
+  request,
+}) => {
+  const entry = await request.post("/api/local-preview/session", {
+    headers: { Origin: "http://localhost:3100" },
+  });
+  expect(entry.status()).toBe(404);
+  const payment = await request.post(
+    "/api/backend/v1/public/orders/order-10/preview-pay",
+    { headers: { Origin: "http://localhost:3100" } },
+  );
+  expect(payment.status()).toBe(404);
+  await context.addCookies([
+    {
+      name: "voxpay_session",
+      value: "voxpay-local-preview",
+      url: "http://localhost:3100",
+      httpOnly: true,
+    },
+  ]);
+  const privateData = await page.request.get("/api/backend/v1/merchants/me");
+  expect(privateData.status()).toBe(401);
+  await page.goto("/pos");
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(
+    page.getByRole("button", { name: "Probar frontend en local" }),
+  ).toHaveCount(0);
+
+  const payload = Buffer.from(
+    JSON.stringify({ iss: "https://securetoken.google.com/preview-test" }),
+  ).toString("base64url");
+  await context.addCookies([
+    {
+      name: "voxpay_session",
+      value: `header.${payload}.signature`,
+      url: "http://localhost:3100",
+      httpOnly: true,
+    },
+  ]);
+  const firebaseAccount = await page.request.get(
+    "/api/backend/v1/merchants/me",
+  );
+  expect(firebaseAccount.status()).toBe(401);
+});
 async function login(page: Page) {
-  await page.goto("/login");
-  await page.getByLabel("Correo electrónico").fill("negocio@example.com");
-  await page.getByLabel("Contraseña", { exact: true }).fill("password123");
-  await page
-    .getByRole("button", { name: "Iniciar sesión", exact: true })
-    .click();
+  // Keep merchant flow tests independent of live Firebase/Google accounts.
+  // The existing compatibility bridge sets the real HttpOnly session cookie.
+  const response = await page.request.post("/api/backend/v1/auth/login", {
+    data: { email: "negocio@example.com", password: "password123" },
+    headers: { Origin: "http://localhost:3100" },
+  });
+  expect(response.ok()).toBe(true);
+  await page.goto("/pos");
   await expect(page).toHaveURL(/\/pos$/);
   await expect(page.getByText("Wallet configurada")).toBeVisible();
 }
@@ -54,12 +103,56 @@ test("login validates, stores HttpOnly session and logout protects merchant rout
 }) => {
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login/);
+  await page.evaluate(() => document.fonts.ready);
+  const loginCard = await page.locator(".login-card").boundingBox();
+  const authShell = await page.locator(".auth-shell").boundingBox();
+  const welcome = await page.locator(".auth-welcome").boundingBox();
+  expect(loginCard).not.toBeNull();
+  expect(authShell).not.toBeNull();
+  expect(welcome).not.toBeNull();
+  expect(Math.abs(authShell!.y + authShell!.height / 2 - 512)).toBeLessThan(8);
+  expect(
+    Math.abs(loginCard!.y + loginCard!.height / 2 - (welcome!.y + welcome!.height / 2)),
+  ).toBeLessThan(8);
+  await page.screenshot({
+    path: "test-results/login-desktop.png",
+    fullPage: true,
+    animations: "disabled",
+  });
   await page
     .getByRole("button", { name: "Iniciar sesión", exact: true })
     .click();
   await expect(page.getByText("Ingresa un correo válido.")).toBeVisible();
+  await page.route(
+    "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword**",
+    (route) =>
+      route.fulfill({
+        status: 400,
+        json: {
+          error: {
+            code: 400,
+            message: "INVALID_LOGIN_CREDENTIALS",
+            errors: [
+              {
+                message: "INVALID_LOGIN_CREDENTIALS",
+                domain: "global",
+                reason: "invalid",
+              },
+            ],
+          },
+        },
+      }),
+  );
   await page.getByLabel("Correo electrónico").fill("wrong@example.com");
   await page.getByLabel("Contraseña", { exact: true }).fill("incorrect123");
+  await page.getByRole("button", { name: "Mostrar contraseña" }).click();
+  await expect(page.getByLabel("Contraseña", { exact: true })).toHaveAttribute(
+    "type",
+    "text",
+  );
+  await expect(
+    page.getByRole("button", { name: "Iniciar sesión con Google" }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Iniciar sesión", exact: true })
     .click();
@@ -279,6 +372,25 @@ test("mobile navigation, every screen fits and brand assets load", async ({
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+  for (const width of [320, 768, 1024]) {
+    await page.setViewportSize({ width, height: 956 });
+    for (const path of [
+      "/pos",
+      "/orders",
+      "/dashboard",
+      "/recipients",
+      "/wallet",
+    ]) {
+      await page.goto(path);
+      await page.waitForLoadState("networkidle");
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        path + " at " + width + "px",
+      ).toBe(true);
+    }
+  }
 });
 test("API bridge blocks anonymous merchant access and cross-origin writes", async ({
   request,
@@ -293,6 +405,96 @@ test("API bridge blocks anonymous merchant access and cross-origin writes", asyn
     ).status(),
   ).toBe(403);
   expect((await request.get("/api/backend/health")).status()).toBe(404);
+});
+
+test("mobile voice review can edit and rerecord without creating a charge", async ({
+  page,
+  request,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.getByRole("button", { name: "Ejemplos", exact: true }).click();
+  await expect(page.locator("#voice-examples")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Grabar instrucción", exact: true })
+    .click();
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: "Detener y transcribir" }).click();
+  await expect(
+    page.getByRole("button", { name: "Confirmar cobro" }),
+  ).toBeEnabled();
+  await expect(page.locator(".voice-card")).toBeHidden();
+  await expect(
+    page.locator(".review-mobile-voxi [data-voxi-pose='presenting']"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Editar instrucción" }).click();
+  await expect(page.locator(".voice-card")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Grabar instrucción", exact: true })
+    .click();
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: "Detener y transcribir" }).click();
+  await expect(page.locator(".voice-card")).toBeHidden();
+  expect(
+    (await (await request.get(base + "/__test/counts")).json()).confirms,
+  ).toBe(0);
+  await page.screenshot({
+    path: "test-results/pos-review-mobile.png",
+    fullPage: true,
+  });
+});
+
+test("registration and recovery keep their real forms and fit small screens", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto("/register");
+  await expect(
+    page.getByRole("button", { name: "Iniciar sesión con Google" }),
+  ).toBeVisible();
+  await page.getByLabel("Correo electrónico").fill("negocio@example.com");
+  await page.getByLabel("Contraseña", { exact: true }).fill("password123");
+  await page.getByLabel("Confirmar contraseña").fill("different123");
+  await page.getByRole("button", { name: "Crear cuenta", exact: true }).click();
+  await expect(page.getByText("Las contraseñas no coinciden.")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.goto("/forgot-password");
+  await page.getByRole("button", { name: "Enviar instrucciones" }).click();
+  await expect(page.getByText("Ingresa un correo válido.")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("frontend bridge forwards the existing merchant wallet registration contract", async ({
+  page,
+  request,
+}) => {
+  expect(
+    (
+      await request.patch("/api/backend/v1/merchants/wallet", {
+        headers: { Origin: "http://localhost:3100" },
+        data: { stellarAddress: "G" },
+      })
+    ).status(),
+  ).toBe(401);
+  await login(page);
+  const { address } = await (await request.get(base + "/__test/reset")).json();
+  const response = await page.request.patch(
+    "/api/backend/v1/merchants/wallet",
+    {
+      headers: { Origin: "http://localhost:3100" },
+      data: { stellarAddress: address },
+    },
+  );
+  expect(response.ok()).toBe(true);
+  expect((await response.json()).stellarAddress).toBe(address);
 });
 
 test("microphone denial is recoverable and never creates an order", async ({

@@ -34,7 +34,7 @@ function ensureInit() {
         name: "VoxPay",
         description: "POS por voz sobre Stellar",
         url: window.location.origin,
-        icons: [`${window.location.origin}/brand/463ac.png`],
+        icons: [`${window.location.origin}/brand/v2/voxpay-logo-transparent.png`],
       },
     });
     window.__voxpayWalletConnectModule = walletConnectModule;

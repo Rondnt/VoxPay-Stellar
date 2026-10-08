@@ -1,5 +1,5 @@
 import { io, type Socket } from "socket.io-client";
-import { auth } from "./firebase";
+import { getFirebaseAuth } from "./firebase";
 export interface NotificationEvent {
   event: string;
   payload: unknown;
@@ -16,7 +16,7 @@ export function connectNotifications(merchantId: string): Socket {
     // reconexión, así el token nunca queda vencido (el SDK de Firebase cachea y refresca solo
     // `getIdToken()`). El backend lo valida en `NotificationsGateway.handleConnection`.
     auth: async (cb) => {
-      const token = await auth.currentUser?.getIdToken();
+      const token = await getFirebaseAuth().currentUser?.getIdToken();
       cb({ token });
     },
   });

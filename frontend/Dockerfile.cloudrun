@@ -1,0 +1,31 @@
+FROM node:22-slim AS build
+
+WORKDIR /app
+
+# NEXT_PUBLIC_* values are inlined into the browser bundle during `next build`.
+# Keep production clients pointed at the deployed API, never the developer's localhost.
+ARG NEXT_PUBLIC_API_URL=https://voxpay-api-chxqzoidha-uc.a.run.app
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+RUN npm prune --omit=dev
+
+FROM node:22-slim
+
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=8080 \
+    HOSTNAME=0.0.0.0
+
+COPY --from=build /app ./
+
+USER node
+EXPOSE 8080
+
+CMD ["npm", "start", "--", "-p", "8080"]

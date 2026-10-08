@@ -35,7 +35,7 @@ const routes: Record<string, RegExp[]> = {
     /^v1\/merchants\/operator\/(tx|submit)$/,
     /^v1\/public\/orders\/[\w-]+\/(tx|submit)$/,
   ],
-  PATCH: [/^v1\/recipients\/[\w-]+$/],
+  PATCH: [/^v1\/recipients\/[\w-]+$/, /^v1\/merchants\/wallet$/],
   DELETE: [/^v1\/recipients\/[\w-]+$/],
 };
 async function handler(
@@ -67,6 +67,14 @@ async function handler(
   if (!isPublic && !token)
     return NextResponse.json({ message: "Sesión requerida" }, { status: 401 });
 
+  if (!isPublic && token === "voxpay-local-preview") {
+    const response = NextResponse.json(
+      { message: "Tu sesión venció. Vuelve a iniciar sesión." },
+      { status: 401 },
+    );
+    response.cookies.delete("voxpay_session");
+    return response;
+  }
   const firebaseSession = !isPublic && !!token && isFirebaseToken(token);
   if (firebaseSession && token) {
     try {
@@ -89,7 +97,8 @@ async function handler(
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
   if (contentType) headers.set("Content-Type", contentType);
-  if (!isPublic && token) headers.set("Authorization", `Bearer ${token}`);
+  if (!isPublic && token)
+    headers.set("Authorization", `Bearer ${token}`);
   try {
     const body = method === "GET" ? undefined : await request.arrayBuffer();
     if (body && body.byteLength > maxBodyBytes)
@@ -116,7 +125,7 @@ async function handler(
         {
           code: "FIREBASE_BACKEND_NOT_LINKED",
           message:
-            "Tu cuenta está autenticada con Firebase. Falta vincularla a un negocio en la API de VoxPay; no se usarán los datos de la demo.",
+            "Tu cuenta está autenticada con Firebase. Falta vincularla a un negocio en la API de VoxPay.",
         },
         { status: 403, headers: { "Cache-Control": "no-store" } },
       );
@@ -146,7 +155,14 @@ async function handler(
       response.cookies.delete("voxpay_session");
     return response;
   } catch {
-    if (firebaseSession) return NextResponse.json({ message: "Has iniciado sesión con Firebase. La API de VoxPay todavía no está disponible para cargar tu negocio." }, { status: 424 });
+    if (firebaseSession)
+      return NextResponse.json(
+        {
+          message:
+            "Has iniciado sesión con Firebase. La API de VoxPay todavía no está disponible para cargar tu negocio.",
+        },
+        { status: 424 },
+      );
     return NextResponse.json(
       { message: "No se pudo contactar a la API de VoxPay" },
       { status: 502 },

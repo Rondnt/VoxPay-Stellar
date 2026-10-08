@@ -1,5 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
+import { UserRound, Info, Wallet, ShieldCheck, ArrowRight } from "lucide-react";
+import { VoxiScene, type VoxiPose } from "@/components/voxi";
 import { useMerchant } from "@/components/merchant-shell";
 import {
   Button,
@@ -92,6 +94,17 @@ export function WalletView() {
     }
   }
   const confirmed = merchant?.operatorAuthorized;
+  const pose: VoxiPose = confirmed
+    ? "celebrating"
+    : failure
+      ? "confused"
+      : stage === "review"
+        ? "authorizing"
+        : stage === "signing" || stage === "uncertain"
+          ? "waiting"
+          : busy
+            ? "thinking"
+            : "presenting";
   const title = confirmed
     ? "Tu negocio está listo"
     : stage === "signing"
@@ -109,47 +122,75 @@ export function WalletView() {
         title="Wallet del negocio"
         description="Configura la autorización para crear cobros."
       />
-      <div className="two-columns">
-        <Card className="stack">
-          <h2>Mi negocio</h2>
-          <p className="break-all">
-            Cuenta registrada ·{" "}
-            {merchant ? shortAddress(merchant.stellarAddress) : "Cargando…"}
-          </p>
-          <p>Red · Stellar Testnet</p>
-          <strong>
+      <Card className="wallet-summary">
+        <div className="row between">
+          <div className="row">
+            <h2>Mi negocio</h2>
+          </div>
+          <span
+            className={"badge " + (confirmed ? "badge-paid" : "badge-pending")}
+          >
             {confirmed ? "Operador autorizado" : "Autorización pendiente"}
-          </strong>
-          {address && <small>Wallet conectada · {shortAddress(address)}</small>}
-        </Card>
+          </span>
+        </div>
+        <div className="wallet-data">
+          <div>
+            <UserRound size={20} aria-hidden="true" />
+            <small>Cuenta registrada ·</small>
+            <strong>
+              {merchant?.stellarAddress
+                ? shortAddress(merchant.stellarAddress)
+                : "Sin wallet registrada"}
+            </strong>
+          </div>
+          <div>
+            <Info size={20} aria-hidden="true" />
+            <small>Red ·</small>
+            <strong>Stellar Testnet</strong>
+          </div>
+        </div>
+        {address && <small>Wallet conectada · {shortAddress(address)}</small>}
+      </Card>
+      <Card className="wallet-state">
+        <VoxiScene pose={pose} />
         <div className="stack">
-          <Notice title={title}>
+          <h2>{title}</h2>
+          <p>
             {confirmed
-              ? "La autorización del operador está confirmada. Ya puedes continuar al POS."
-              : stage === "review"
-                ? "Autorizarás al operador de VoxPay para crear y cancelar cobros de tu negocio. Los clientes firman sus propios pagos."
-                : stage === "signing"
-                  ? "Revisa la transacción de autorización en Freighter o xBull. No cierres esta pantalla."
-                  : stage === "submitting"
-                    ? "Esperamos la respuesta del servidor. No vuelvas a enviar la transacción."
-                    : stage === "uncertain"
-                      ? "Consulta el estado antes de volver a firmar. La transacción podría haberse enviado."
-                      : "Conecta la wallet que vas a usar para tu negocio. La primera vez que conectes queda registrada como tu cuenta; después no se podrá cambiar. La conexión no autoriza todavía al operador."}
-          </Notice>
+                ? "La autorización del operador está confirmada. Ya puedes continuar al POS."
+                : stage === "review"
+                  ? "Autorizarás al operador de VoxPay para crear y cancelar cobros de tu negocio. Los clientes firman sus propios pagos."
+                  : stage === "signing"
+                    ? "Revisa la transacción de autorización en Freighter o xBull. No cierres esta pantalla."
+                    : stage === "submitting"
+                      ? "Esperamos la respuesta del servidor. No vuelvas a enviar la transacción."
+                      : stage === "uncertain"
+                        ? "Consulta el estado antes de volver a firmar. La transacción podría haberse enviado."
+                        : "Conecta la wallet que vas a usar para tu negocio. La primera vez que conectes queda registrada como tu cuenta; después no se podrá cambiar. La conexión no autoriza todavía al operador."}
+          </p>
           {failure && <Notice error>{failure}</Notice>}
           {confirmed ? (
-            <ButtonLink href="/pos">Continuar al POS</ButtonLink>
+            <>
+              <ButtonLink href="/pos">
+                Continuar al POS
+                <ArrowRight size={22} aria-hidden="true" />
+              </ButtonLink>
+            </>
           ) : stage === "uncertain" ? (
             <Button onClick={refresh}>Consultar estado</Button>
           ) : stage === "review" ? (
             <>
-              <Button onClick={authorize}>Autorizar operador</Button>
+              <Button onClick={authorize}>
+                Autorizar operador
+                <ShieldCheck size={22} aria-hidden="true" />
+              </Button>
               <Button variant="secondary" onClick={connect}>
                 Cambiar wallet
               </Button>
             </>
           ) : (
             <Button disabled={!merchant} busy={busy} onClick={connect}>
+              {!busy && <Wallet size={22} aria-hidden="true" />}
               {busy
                 ? stage === "connecting"
                   ? "Conectando…"
@@ -159,11 +200,11 @@ export function WalletView() {
           )}
           <TransactionLink hash={hash} />
         </div>
-      </div>
-      <p>
+      </Card>
+      <Notice>
         La wallet del negocio y la wallet del cliente cumplen funciones
         distintas.
-      </p>
+      </Notice>
       <Footer />
     </>
   );

@@ -1,5 +1,7 @@
 "use client";
 import { useEffect } from "react";
+import { Store, ClipboardList, RefreshCw } from "lucide-react";
+import { VoxiScene } from "@/components/voxi";
 import { useMerchant } from "@/components/merchant-shell";
 import {
   Button,
@@ -47,7 +49,7 @@ export function DashboardView() {
             : "Hoy (UTC)"}
         </p>
         <Button variant="secondary" onClick={refresh} busy={loading}>
-          Actualizar
+          Actualizar{!loading && <RefreshCw size={20} aria-hidden="true" />}
         </Button>
       </div>
       {loading && !data ? (
@@ -72,15 +74,24 @@ export function DashboardView() {
             )}
             <div className="two-columns">
               <Card className="metric">
-                <p>Total cobrado hoy</p>
-                <strong>{money(data.totalAmount)} USDC</strong>
+                <div className="metric-label">
+                  <p>Total cobrado hoy</p>
+                  <Store size={28} aria-hidden="true" />
+                </div>
+                <strong className="metric-value">
+                  {money(data.totalAmount)} <span>USDC</span>
+                </strong>
               </Card>
               <Card className="metric">
-                <p>Pedidos pagados</p>
-                <strong>{data.count}</strong>
+                <div className="metric-label">
+                  <p>Pedidos pagados</p>
+                  <ClipboardList size={28} aria-hidden="true" />
+                </div>
+                <strong className="metric-value">{data.count}</strong>
               </Card>
             </div>
             <Notice
+              success={!!data.count}
               title={
                 data.count
                   ? "Solo pagos confirmados"
@@ -89,6 +100,14 @@ export function DashboardView() {
             >
               El importe incluye el reparto entre tu negocio y destinatarios.
             </Notice>
+            {!data.count && (
+              <Card className="state-card">
+                <VoxiScene pose="greeting" />
+                <h2>Tu próximo cobro empieza aquí</h2>
+                <p>Crea un cobro por voz para comenzar el día.</p>
+                <ButtonLink href="/pos">Nuevo cobro</ButtonLink>
+              </Card>
+            )}
             <small>
               Actualizado:{" "}
               {new Date(data.to).toLocaleTimeString("es-PE", {

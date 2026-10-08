@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
-import { CheckCircle, LoaderCircle } from "lucide-react";
+import { Store, LoaderCircle, ArrowRight } from "lucide-react";
+import { VoxiScene, type VoxiPose } from "@/components/voxi";
 import {
   Amount,
   Brand,
@@ -105,6 +106,22 @@ export function PaymentView({ orderId }: { orderId: string }) {
   const paid = order?.status === "PAID";
   const cancelled = order?.status === "CANCELLED";
   const unavailable = error instanceof ApiError && error.status === 404;
+  const pose: VoxiPose = paid
+    ? "celebrating"
+    : cancelled || unavailable
+      ? "stopping"
+      : failure || (error && !order)
+        ? "confused"
+        : (loading && !order) ||
+            ["building", "submitting", "connecting"].includes(stage)
+          ? "thinking"
+          : stage === "signing"
+            ? "authorizing"
+            : stage === "pending"
+              ? "waiting"
+              : stage === "review"
+                ? "presenting"
+                : "greeting";
   let title = "Paga tu pedido",
     description = "Revisa el importe y conecta tu wallet.";
   if (loading && !order) {
@@ -118,8 +135,7 @@ export function PaymentView({ orderId }: { orderId: string }) {
     description = "Revisa tu conexión e inténtalo de nuevo.";
   } else if (paid) {
     title = "Pago confirmado";
-    description =
-      "Tu pago se completó correctamente. Puedes cerrar esta pantalla.";
+    description = "Tu pago se completó correctamente. Puedes cerrar esta pantalla.";
   } else if (cancelled) {
     title = "Pedido cancelado";
     description = "Este cobro ya no admite pagos. Pide un nuevo QR al negocio.";
@@ -144,25 +160,62 @@ export function PaymentView({ orderId }: { orderId: string }) {
         <NetworkBadge />
       </header>
       <main className="payment-main">
+        <div className="page-heading">
+          <div>
+            <h1>Pago de tu pedido</h1>
+            <p>Revisa el importe y paga desde tu wallet.</p>
+          </div>
+        </div>
         <div className="payment-grid">
-          <section className="payment-summary">
-            <h2>Pago a negocio</h2>
-            <p>
-              Pedido {order?.orderRef ?? "—"} · <strong>Total a pagar</strong>
-            </p>
-            {order && !unavailable ? (
-              <Amount value={order.amount} />
-            ) : (
-              <div className="amount">
-                <strong>—</strong>
-                <span>USDC</span>
+          <section className="card payment-summary">
+            <div className="merchant-identity">
+              <span className="avatar">
+                <Store size={24} aria-hidden="true" />
+              </span>
+              <div>
+                <h2>Pago a negocio</h2>
+                <p>Pedido {order?.orderRef ?? "—"}</p>
               </div>
-            )}
+            </div>
+            <hr />
+            <div>
+              <p>Total a pagar</p>
+              {order && !unavailable ? (
+                <Amount value={order.amount} />
+              ) : (
+                <div className="amount">
+                  <strong>—</strong>
+                  <span>USDC</span>
+                </div>
+              )}
+            </div>
+            <hr />
+            <p>Stellar Testnet · USDC de prueba</p>
           </section>
           <section className="card payment-action" aria-live="polite">
+            <span
+              className={
+                "badge " +
+                (paid
+                  ? "badge-paid"
+                  : cancelled || unavailable
+                    ? "badge-cancelled"
+                    : "")
+              }
+            >
+              {paid
+                ? "Pago recibido"
+                : cancelled
+                  ? "Cancelado"
+                  : unavailable
+                    ? "No disponible"
+                    : busy || stage === "pending"
+                      ? "Pago en proceso"
+                      : "Pago seguro"}
+            </span>
+            <VoxiScene pose={pose} />
             <div className="stack">
-              {paid && <CheckCircle size={40} aria-hidden="true" />}
-              <h1>{title}</h1>
+              <h2>{title}</h2>
               <p>{description}</p>
             </div>
             {address && !paid && !cancelled && (
@@ -193,6 +246,7 @@ export function PaymentView({ orderId }: { orderId: string }) {
                 <>
                   <Button onClick={pay} disabled={!!error}>
                     Confirmar y pagar
+                    <ArrowRight size={22} aria-hidden="true" />
                   </Button>
                   <Button variant="secondary" onClick={connect}>
                     Cambiar wallet
@@ -201,7 +255,9 @@ export function PaymentView({ orderId }: { orderId: string }) {
               ) : (
                 <>
                   <Button busy={busy} disabled={!!error} onClick={connect}>
-                    {busy ? "Esperando confirmación…" : "Conectar wallet"}
+                    {busy
+                      ? "Esperando confirmación…"
+                      : "Conectar wallet"}
                   </Button>
                   {!busy && (
                     <Button variant="secondary" onClick={() => setHelp(!help)}>

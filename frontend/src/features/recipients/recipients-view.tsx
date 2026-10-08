@@ -1,5 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
+import { Plus, UserRound, Pencil, Trash2 } from "lucide-react";
+import { VoxiScene } from "@/components/voxi";
 import {
   Button,
   Card,
@@ -106,8 +108,20 @@ export function RecipientsView() {
       <PageHeading
         title="Destinatarios"
         description="Guarda los contactos para repartir tus cobros."
+        action={
+          !editing && !deleting ? (
+            <Button onClick={() => edit("new")}>
+              Agregar destinatario
+              <Plus size={22} aria-hidden="true" />
+            </Button>
+          ) : undefined
+        }
       />
-      {message && <Notice title="Cambios guardados">{message}</Notice>}
+      {message && (
+        <Notice success title="Cambios guardados">
+          {message}
+        </Notice>
+      )}
       {editing ? (
         <>
           <div>
@@ -186,6 +200,7 @@ export function RecipientsView() {
         </>
       ) : deleting ? (
         <Card className="recipient-form stack" aria-labelledby="delete-title">
+          <VoxiScene pose="stopping" />
           <h2 id="delete-title">¿Eliminar a {deleting.alias}?</h2>
           <p>
             Se quitará de tu agenda. Los pedidos ya creados conservarán su
@@ -200,16 +215,13 @@ export function RecipientsView() {
             >
               Conservar destinatario
             </Button>
-            <Button busy={busy} onClick={remove}>
+            <Button variant="danger" busy={busy} onClick={remove}>
               Eliminar destinatario
             </Button>
           </div>
         </Card>
       ) : (
         <>
-          <div>
-            <Button onClick={() => edit("new")}>Agregar destinatario</Button>
-          </div>
           {loading && !data ? (
             <Loading label="Cargando destinatarios" />
           ) : error ? (
@@ -220,26 +232,33 @@ export function RecipientsView() {
               {errorMessage(error)}
             </EmptyState>
           ) : data?.length ? (
-            <div className="two-columns">
+            <div className="recipients-list">
               {data.map((r) => (
                 <Card key={r.id} className="recipient-card">
-                  <h2>{r.alias}</h2>
-                  <p title={r.stellarAddress}>
-                    {shortAddress(r.stellarAddress)}
-                  </p>
-                  <small>Wallet Stellar</small>
+                  <span className="avatar">
+                    <UserRound size={24} aria-hidden="true" />
+                  </span>
+                  <div className="recipient-identity">
+                    <h2>{r.alias}</h2>
+                    <p title={r.stellarAddress}>
+                      {shortAddress(r.stellarAddress)}
+                    </p>
+                    <small>Wallet Stellar</small>
+                  </div>
                   <div className="row">
                     <Button variant="secondary" onClick={() => edit(r)}>
+                      <Pencil size={18} aria-hidden="true" />
                       Editar
                     </Button>
                     <Button
-                      variant="secondary"
+                      variant="danger"
                       onClick={() => {
                         setDeleting(r);
                         setFailure("");
                         setMessage("");
                       }}
                     >
+                      <Trash2 size={18} aria-hidden="true" />
                       Eliminar
                     </Button>
                   </div>
@@ -247,11 +266,21 @@ export function RecipientsView() {
               ))}
             </div>
           ) : (
-            <EmptyState title="Aún no tienes destinatarios">
+            <EmptyState
+              title="Aún no tienes destinatarios"
+              pose="greeting"
+              action={
+                <Button onClick={() => edit("new")}>
+                  Agregar mi primer destinatario
+                </Button>
+              }
+            >
               Agrega un alias y su wallet para repartir tus cobros por voz.
             </EmptyState>
           )}
-          <p>Usa el alias al dictar un cobro: «reparte 5 USDC a José».</p>
+          <Notice>
+            Usa el alias al dictar un cobro: «reparte 5 USDC a José».
+          </Notice>
         </>
       )}
       <Footer />

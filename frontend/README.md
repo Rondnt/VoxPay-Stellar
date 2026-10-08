@@ -1,62 +1,65 @@
-# VoxPay — frontend
+# VoxPay — frontend v2
 
-Next.js App Router + React + TypeScript. Implementación responsive del MVP: login, POS por voz, QR, pago del cliente, pedidos, destinatarios, dashboard y wallet del negocio.
+Next.js App Router, React y TypeScript. Nueva interfaz basada en el [diseño aprobado de VoxPay](https://www.figma.com/design/RbYkpWZYOauyyjB2g6Oks7/VoxPay-Stellar), con el logotipo cacao/turquesa, Voxi y versiones desktop/móvil.
 
 ## Ejecutar
 
-Desde `frontend/`, con Node.js 22 y npm:
+Desde esta carpeta, con Node.js 22 y npm:
 
 ```powershell
 npm ci
+# Solo si todavía no existe .env.local:
 Copy-Item .env.example .env.local
 npm run dev
 ```
 
-Abre [localhost:3000](http://localhost:3000). El backend debe estar disponible en 3001 y tener un negocio/usuario creados según el plan. No hay credenciales de demostración en la aplicación.
+Abre [localhost:3000](http://localhost:3000). Configura las variables de tu proyecto en .env.local; no reemplaces una configuración existente.
 
-- `API_URL`: backend accesible desde el servidor Next.js.
-- `NEXT_PUBLIC_API_URL`: backend accesible desde el navegador para Socket.IO. En un teléfono no debe apuntar a localhost del teléfono.
-- La wallet usa **Stellar Testnet** explícitamente. `NEXT_PUBLIC_NETWORK` documenta esa configuración; cambiarla no habilita otras redes.
-- La grabación requiere HTTPS o localhost, permiso de micrófono y MediaRecorder. Para probar desde un teléfono, sirve la aplicación por HTTPS.
-- `npm run build` y `npm start` necesitan un servidor Node.js, no exportación estática. En producción la cookie requiere HTTPS. Poppins se descarga durante el build mediante next/font.
+- API_URL: backend accesible desde el servidor Next.js.
+- NEXT_PUBLIC_API_URL: URL del backend para Socket.IO en el navegador. Desde un teléfono debe ser una dirección accesible, no localhost del teléfono.
+- NEXT*PUBLIC_FIREBASE*\*: configuración web del proyecto Firebase, necesaria para correo/contraseña, registro, Google y recuperación de acceso. La cookie de sesión se valida con Firebase Admin en el servidor.
+- Para usar Firebase Auth Emulator, configura las dos variables de emulador de .env.example. Déjalas sin definir para usar Firebase real.
+- NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: proyecto Reown para wallets móviles. Freighter y xBull conservan su selector existente.
+- La wallet usa Stellar Testnet. Cambiar NEXT_PUBLIC_NETWORK por sí solo no habilita otra red.
+- El micrófono requiere HTTPS o localhost y un navegador con MediaRecorder.
+- La compilación utiliza next/font para Poppins. El despliegue requiere un servidor Node.js; la sesión usa HTTPS en producción.
 
-## Pantallas
+El acceso requiere la configuración Firebase y una API de VoxPay disponible. Firebase se inicializa al usar sus funciones, por lo que la comprobación de compilación en GitHub no necesita tu archivo .env.local. Para desplegar, configura NEXT_PUBLIC_* antes de npm run build y API_URL en el servidor.
 
-| Ruta          | Implementado                                                                                                           |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| /login        | Validación, mostrar contraseña, error de credenciales y sesión vencida.                                                |
-| /pos          | Grabación real de hasta 60 s/12 MB, transcripción por eventos, revisión del reparto, confirmación explícita y QR real. |
-| /pos?order=ID | Recuperación del QR y seguimiento de pago/cancelación.                                                                 |
-| /pay/ID       | Acceso público, Freighter/xBull, verificación de cuenta/red, revisión, firma, envío y seguimiento.                     |
-| /orders       | Búsqueda, filtros, tabla/cards y estados vacíos/error.                                                                 |
-| /orders/ID    | Importe, reparto, estado, acceso al QR y enlaces a transacciones.                                                      |
-| /recipients   | Crear, editar, eliminar con confirmación, alias duplicados y validación de dirección Stellar.                          |
-| /dashboard    | Total y cantidad de pagos del día UTC; conserva el último resumen ante errores.                                        |
-| /wallet       | Conectar la cuenta del negocio y firmar la autorización del operador.                                                  |
+## Diseño y comportamiento
 
-Textos y componentes compartidos entre desktop y móvil. Botones de acción de 38 px en desktop, ampliados en móvil. Paleta, tipografía y recursos proceden del [archivo Figma](https://www.figma.com/design/RbYkpWZYOauyyjB2g6Oks7/VoxPay-Stellar?node-id=11-140).
+| Ruta                 | Interfaz y funcionalidad existente                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------- |
+| /login               | Bienvenida con Voxi, acceso Firebase por correo o Google, recordarme y mostrar contraseña.        |
+| /register            | Registro Firebase por correo o Google y validación de contraseñas.                                |
+| /forgot-password     | Envío del enlace de recuperación mediante Firebase.                                               |
+| /pos                 | Voxi según el estado, ejemplos, grabación real, interpretación, reparto y confirmación explícita. |
+| /pos?order=ID        | QR real, copiar enlace y seguimiento del estado del pedido.                                       |
+| /pay/ID              | Acceso público, conexión de wallet, revisión, firma y envío del pago.                             |
+| /orders y /orders/ID | Búsqueda, filtros, detalle, reparto y acceso al QR. Voxi acompaña estados vacíos y errores.       |
+| /dashboard           | Total y cantidad de pagos del día UTC; conserva el último resumen ante errores.                   |
+| /recipients          | Crear, editar y eliminar contactos, validar alias y direcciones Stellar.                          |
+| /wallet              | Registrar la primera wallet del negocio y autorizar al operador con la wallet existente.          |
 
-## Integración
+Desktop utiliza navegación lateral; móvil, menú desplegable. Los componentes y estados comparten los mismos tokens de color. El micrófono conserva su control visible junto a Voxi. La transcripción se muestra cuando llega la interpretación del servicio, sin simular texto en tiempo real.
 
-El navegador llama a `/api/backend/...`. Este Route Handler permite solo las rutas utilizadas, verifica el origen de las escrituras, envía el JWT al backend y guarda una cookie HttpOnly, SameSite=Lax, Secure en producción. No guarda el JWT en localStorage ni lo expone al JavaScript. El backend debe validar JWT y permisos; proxy.ts solo protege la navegación de forma preliminar.
+Nuevo cobro utiliza un contenedor centrado de hasta 1120 px y cards sin altura mínima forzada. Voxi, los títulos y los espacios se ajustan al tamaño de pantalla; en desktop bajo, los pasos comparten la fila del encabezado. La revisión móvil utiliza una ilustración pequeña junto al título y mantiene confirmar y editar juntos. Los avisos, ejemplos y repartos largos pueden aumentar la altura de la página sin recortar información ni controles.
 
-Una respuesta incierta al confirmar un cobro o enviar una transacción no provoca reenvío automático. El QR contiene /pay/ID del origen actual. La interfaz consulta el estado del backend; no considera el clic o la firma como pago confirmado. Nunca solicita claves privadas.
+La paleta está centralizada en src/app/globals.css: turquesa primario #2C8A9D, fondos blancos #FFFFFF, paneles y cabeceras celestes #E8F3F6, bordes #CCE3E9 y títulos cacao #3E2B24. Las cards, formularios y paneles interiores comparten el radio de 12 px definido por --radius; los indicadores circulares conservan su forma. Las imágenes originales aprobadas están en public/brand/v2 y las poses se asignan en src/components/voxi.tsx. Next Image entrega versiones optimizadas; no se utilizan URLs temporales de Figma en la aplicación.
 
-Los tipos usados están en `src/types/domain.ts`, contrastados con backend y plan. `src/types/api.ts` es el scaffold anterior: falta generar OpenAPI cuando los contratos estén completos.
+El logotipo actual es public/brand/v2/voxpay-logo-transparent.png, copia del PNG transparente entregado por el equipo. El componente Brand lo comparte entre login, registro, recuperación, pantallas del negocio y pago del cliente. Las poses de Voxi y los fondos decorativos siguen en la misma carpeta de assets.
 
-## Pendientes para coordinar con José
+El favicon usa el isotipo circular proporcionado por el equipo: public/brand/v2/voxpay-icon.png (512 × 512) y src/app/favicon.ico (16–256 px). El manifest comparte este icono y el enlace del navegador incluye su versión para actualizar la caché.
 
-No se ha modificado el backend. Estos puntos impiden considerar terminada la integración end-to-end:
+## Compatibilidad con la API
 
-1. **Listado:** falta GET /v1/orders. La UI espera Order[] del merchant autenticado (campos en domain.ts). Si responde 404 muestra su ausencia, no datos inventados.
-2. **Dashboard:** falta GET /v1/analytics/today con { totalAmount, count, from, to }, según el plan.
-3. **Voz:** completar/conectar el processor con Raven y emitir voice:confirmation con { commandId, transcript, intent, status? }. La UI acepta order_ref/recipient_alias y camelCase para mostrar la intención; el backend debe almacenar el formato que espera su confirmación. Para recuperar una interpretación tras desconexión conviene un endpoint de estado por commandId.
-4. **WebSocket:** el gateway acepta merchantId sin autenticar. Debe validar la sesión y restringir la sala al tenant. La UI conserva ese contrato actual, pero no lo hace seguro. Antes de producción hay que acordar autenticación compatible con la cookie HttpOnly, por ejemplo una credencial efímera emitida por el servidor; no exponer el JWT permanente.
-5. **Aislamiento:** GET /v1/orders/:id debe validar el tenant en el servidor. Las comprobaciones visuales no sustituyen ese control.
-6. **Confirmación Stellar:** SorobanService.submit devuelve el hash de sendTransaction sin esperar éxito final. Los servicios pueden marcar PAID/operador autorizado o guardar createTxHash demasiado pronto. El backend debe consultar el resultado final y validar que el XDR firmado corresponde al pedido/operación esperados antes de actualizar estados. También necesita idempotencia en confirmaciones y envíos.
-7. **Infraestructura:** completar deploy/configuración del contrato, seed, workers, Redis/Postgres y verificar el flujo con wallets y fondos de prueba reales. Las pruebas del frontend no validan Soroban.
+Esta versión cambia el frontend y conserva los contratos de la versión existente. El navegador llama a /api/backend; la pasarela de Next permite las rutas utilizadas, verifica el origen de las escrituras y envía la cookie HttpOnly al backend. También admite PATCH /v1/merchants/wallet, que ya existe en el backend y utiliza el registro de la primera wallet.
 
-No se añadieron registro, recuperación de contraseña, login Google ni cancelación de pedidos porque la API no ofrece esos contratos. Son ausencias deliberadas, no botones que aparenten funcionar.
+No se modificaron servicios, contratos Stellar ni datos del backend. La UI toma importes, repartos y estados de la API. No incorpora cobros locales, liquidación en soles, gráficos nuevos ni un chatbot sin un servicio que los respalde.
+
+Los endpoints de pedidos y métricas ya están presentes en esta versión del repositorio. Si el entorno desplegado todavía no los ofrece, la UI muestra el error y permite reintentar. Una respuesta incierta al confirmar o enviar una transacción no provoca reenvío automático.
+
+La cuenta Firebase debe estar vinculada a un negocio de la API. Las autorizaciones y los pagos siguen dependiendo de la validación y confirmación que haga el backend. Mostrar PAID o una autorización en esta interfaz no verifica de forma independiente la finalidad de la transacción en Stellar.
 
 ## Verificación
 
@@ -68,10 +71,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Playwright levanta una API **exclusivamente de prueba** en 3101 y Next.js en 3100; ambos puertos deben estar libres. No usa ni modifica datos del backend real. Los fixtures de tests/mock-api.mjs no se importan desde la aplicación.
+Playwright levanta una API exclusivamente de prueba en 3101 y Next.js en 3100. Ambos puertos deben estar libres. Los fixtures no se importan desde la aplicación y no modifican el backend real.
 
-Las pruebas cubren validación, login/cookie/logout, destinatarios CRUD, filtros/detalle, métricas, voz→confirmación→QR→pago notificado, errores, navegación responsive y protección de la pasarela. Capturas en test-results/ para revisión visual. La voz usa un dispositivo de audio simulado de Chromium; la firma con extensión y el pago on-chain requieren prueba manual en Testnet.
+Las pruebas de flujos comerciales obtienen una cookie HttpOnly mediante la pasarela de compatibilidad existente. La validación y los errores del formulario Firebase usan respuestas de red simuladas; no necesitan usuarios reales ni hacen un login Google. Se comprueban voz → confirmación → QR → notificación de pago, CRUD, filtros, métricas, estados de error, navegación móvil, carga de imágenes y ausencia de desbordamiento. Las capturas quedan en test-results.
 
-Checklist manual pendiente: Freighter/xBull, red incorrecta, cambio de cuenta, rechazo de firma, saldo insuficiente, RPC caído, confirmación final on-chain y escaneo desde teléfono.
-
-La auditoría de dependencias del 25/09/2026 reportó 19 avisos (13 bajos, 6 moderados; ninguno alto/crítico), principalmente transitivos del kit de wallets. No se aplicó npm audit fix --force, que propone una versión incompatible. Revisarlos antes de publicar.
+La firma con una extensión real, Google OAuth, cuentas Firebase vinculadas al negocio y los pagos on-chain deben validarse con el equipo de integración y fondos Testnet. Estas pruebas no certifican los contratos ni el backend.

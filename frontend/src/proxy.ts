@@ -5,9 +5,13 @@ import type { NextRequest } from "next/server";
 export function proxy(request: NextRequest) {
   const token = request.cookies.get("voxpay_session")?.value;
 
-  if (!token) {
+  // Discard the obsolete session from the previous development-only version.
+  if (!token || token === "voxpay-local-preview") {
     const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
+    const response = NextResponse.redirect(loginUrl);
+    if (token === "voxpay-local-preview")
+      response.cookies.delete("voxpay_session");
+    return response;
   }
 
   return NextResponse.next();

@@ -1,0 +1,33 @@
+env:
+  - variable: NEXT_PUBLIC_API_URL
+    value: https://voxpay-api-chxqzoidha-uc.a.run.app
+    availability:
+      - BUILD
+  - variable: NEXT_PUBLIC_NETWORK
+    value: TESTNET
+    availability:
+      - BUILD
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyDhOd8lgscTA4D-4oKM5rJvmiDOoJyNqUs
+    availability:
+      - BUILD
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: voxpay-gj.firebaseapp.com
+    availability:
+      - BUILD
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: voxpay-gj
+    availability:
+      - BUILD
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: voxpay-gj.firebasestorage.app
+    availability:
+      - BUILD
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "701355047093"
+    availability:
+      - BUILD
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:701355047093:web:b8ea69e2cb956aeaace6fc
+    availability:
+      - BUILD
