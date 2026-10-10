@@ -617,7 +617,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
               <button
                 className={"mic-control " + (recording ? "is-recording" : "")}
                 aria-label={
-                  recording ? "Detener grabación" : "Grabar instrucción"
+                  recording ? "Detener y transcribir" : "Grabar instrucción"
                 }
                 disabled={
                   processing || !merchant?.operatorAuthorized || !connected
@@ -636,7 +636,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
               </button>
               <span className="voice-control-label">
                 {recording
-                  ? "Te escucho · " + seconds + "s / 60s"
+                  ? "Detener y transcribir · " + seconds + "s / 60s"
                   : processing
                     ? "Preparando tu instrucción…"
                     : transcript
@@ -664,10 +664,6 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
             </div>
             {recording && (
               <div className="stack recording-actions">
-                <Button onClick={() => recorder.current?.stop()}>
-                  <Square size={14} />
-                  Detener y transcribir
-                </Button>
                 <Button variant="secondary" onClick={cancelRecording}>
                   Cancelar grabación
                 </Button>

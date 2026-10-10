@@ -90,9 +90,7 @@ export function OrdersView() {
               >
                 Limpiar filtros
               </Button>
-            ) : (
-              <ButtonLink href="/pos">Nuevo cobro</ButtonLink>
-            )
+            ) : undefined
           }
         >
           {query || status

@@ -78,7 +78,10 @@ export function MerchantShell({ children }: { children: ReactNode }) {
           <div className="account-wrap">
             <button
               className="account-button"
-              onClick={() => setAccountOpen(!accountOpen)}
+              onClick={() => {
+                setAccountOpen(!accountOpen);
+                setMobileOpen(false);
+              }}
               aria-expanded={accountOpen}
               aria-controls="account-menu"
             >
@@ -104,7 +107,10 @@ export function MerchantShell({ children }: { children: ReactNode }) {
             aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}
             aria-expanded={mobileOpen}
             aria-controls="mobile-navigation"
-            onClick={() => setMobileOpen(!mobileOpen)}
+            onClick={() => {
+              setMobileOpen(!mobileOpen);
+              setAccountOpen(false);
+            }}
           >
             {mobileOpen ? <X /> : <Menu />}
           </button>

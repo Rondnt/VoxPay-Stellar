@@ -103,7 +103,7 @@ export function LoginForm({
   }
 
   return (
-    <AuthLayout register={register}>
+    <AuthLayout register={register} animateVoxi={!register}>
       <div className="login-card-header">
         <h1>{register ? "Crea tu cuenta" : "Iniciar sesión"}</h1>
         <p>

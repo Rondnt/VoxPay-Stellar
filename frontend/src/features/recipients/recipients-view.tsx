@@ -1,6 +1,6 @@
 "use client";
 import { useState, type FormEvent } from "react";
-import { Plus, UserRound, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, UserRound, Pencil, Trash2 } from "lucide-react";
 import { VoxiScene } from "@/components/voxi";
 import {
   Button,
@@ -128,8 +128,10 @@ export function RecipientsView() {
             <Button
               variant="secondary"
               disabled={busy}
+              type="button"
               onClick={() => setEditing(null)}
             >
+              <ArrowLeft size={20} aria-hidden="true" />
               Volver a destinatarios
             </Button>
           </div>
@@ -186,14 +188,6 @@ export function RecipientsView() {
               {failure && <Notice error>{failure}</Notice>}
               <Button type="submit" busy={busy}>
                 Guardar destinatario
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={busy}
-                type="button"
-                onClick={() => setEditing(null)}
-              >
-                Cancelar
               </Button>
             </form>
           </Card>
@@ -269,11 +263,6 @@ export function RecipientsView() {
             <EmptyState
               title="Aún no tienes destinatarios"
               pose="greeting"
-              action={
-                <Button onClick={() => edit("new")}>
-                  Agregar mi primer destinatario
-                </Button>
-              }
             >
               Agrega un alias y su wallet para repartir tus cobros por voz.
             </EmptyState>

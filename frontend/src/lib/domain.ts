@@ -1,4 +1,26 @@
-import type { ConfirmableIntent, OrderStatus } from "@/types/domain";
+import type {
+  ConfirmableIntent,
+  DailyAnalytics,
+  OrderStatus,
+} from "@/types/domain";
+export function isDailyAnalytics(value: unknown): value is DailyAnalytics {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Record<string, unknown>;
+  return (
+    typeof data.totalAmount === "string" &&
+    data.totalAmount.trim() !== "" &&
+    Number.isFinite(Number(data.totalAmount)) &&
+    Number(data.totalAmount) >= 0 &&
+    typeof data.count === "number" &&
+    Number.isInteger(data.count) &&
+    data.count >= 0 &&
+    typeof data.from === "string" &&
+    Number.isFinite(Date.parse(data.from)) &&
+    typeof data.to === "string" &&
+    Number.isFinite(Date.parse(data.to)) &&
+    Date.parse(data.from) <= Date.parse(data.to)
+  );
+}
 export function money(value: string | number): string {
   const n = Number(value);
   return Number.isFinite(n)

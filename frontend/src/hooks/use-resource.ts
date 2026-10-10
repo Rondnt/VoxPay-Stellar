@@ -1,7 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/services/api-client";
-export function useResource<T>(path: string, interval = 0) {
+export function useResource<T>(
+  path: string,
+  interval = 0,
+  validate?: (value: unknown) => value is T,
+) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
@@ -14,6 +18,10 @@ export function useResource<T>(path: string, interval = 0) {
       .get<T>(path, controller.signal)
       .then((value) => {
         if (!controller.signal.aborted) {
+          if (validate && !validate(value))
+            throw new Error(
+              "El servicio devolvió datos incompletos o inválidos. Vuelve a intentarlo.",
+            );
           setData(value);
           setError(null);
         }
@@ -25,7 +33,7 @@ export function useResource<T>(path: string, interval = 0) {
         if (!controller.signal.aborted) setLoading(false);
         if (request.current === controller) request.current = null;
       });
-  }, [path]);
+  }, [path, validate]);
   useEffect(() => {
     void load();
     const timer = interval

@@ -55,6 +55,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
           : "No se pudo completar la solicitud.",
     );
   }
+  if (response.status === 204 && (init.method ?? "GET") !== "GET")
+    return undefined as T;
+  if (data === null || typeof data !== "object")
+    throw new ApiError(
+      response.status,
+      "El servicio no devolvió una respuesta válida. Inténtalo de nuevo.",
+    );
   return data as T;
 }
 export const apiClient = {

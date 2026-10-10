@@ -97,6 +97,81 @@ test("intent validation rejects unsafe or unknown splits", () => {
   expect(explorerUrl("javascript:alert(1)")).toBeNull();
   expect(money("30")).toBe("30.00");
 });
+test("login Voxi plays continuously at 1.25x without sound on desktop and mobile", async ({
+  page,
+  browser,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.goto("/login");
+  const animation = page.locator(".auth-voxi-video");
+  const video = animation.locator("video");
+  await expect(animation).toBeVisible();
+  await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThan(0.1);
+  expect(await video.evaluate((element: HTMLVideoElement) => ({
+    muted: element.muted,
+    volume: element.volume,
+    controls: element.controls,
+    loop: element.loop,
+    playbackRate: element.playbackRate,
+  }))).toEqual({ muted: true, volume: 0, controls: false, loop: true, playbackRate: 1.25 });
+  const backgroundAlpha = await video.evaluate((element: HTMLVideoElement) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = element.videoWidth;
+    canvas.height = element.videoHeight;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(element, 0, 0);
+    return context.getImageData(0, 0, 1, 1).data[3];
+  });
+  expect(backgroundAlpha).toBe(255);
+  await animation.hover();
+  await page.mouse.move(0, 0);
+  await page.getByLabel("Correo electrónico").focus();
+  await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false);
+  const repeats = await video.evaluate((element: HTMLVideoElement) =>
+    new Promise<boolean>((resolve) => {
+      let previousTime = element.currentTime;
+      const timeout = setTimeout(
+        () => finish(false),
+        (element.duration / element.playbackRate + 1) * 1000,
+      );
+      const observe = () => {
+        if (element.currentTime < previousTime) finish(true);
+        previousTime = element.currentTime;
+      };
+      function finish(repeated: boolean) {
+        clearTimeout(timeout);
+        element.removeEventListener("timeupdate", observe);
+        resolve(repeated);
+      }
+      element.addEventListener("timeupdate", observe);
+    }),
+  );
+  expect(repeats).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(768);
+  await page.screenshot({ path: "test-results/login-voxi-desktop.png", animations: "disabled" });
+
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  try {
+    const mobile = await context.newPage();
+    await mobile.goto("http://localhost:3100/login");
+    const mobileAnimation = mobile.locator(".auth-voxi-video");
+    const mobileVideo = mobileAnimation.locator("video");
+    await expect.poll(() => mobileVideo.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThan(0.1);
+    expect(await mobileVideo.evaluate((element: HTMLVideoElement) => element.muted)).toBe(true);
+    expect(await mobileVideo.evaluate((element: HTMLVideoElement) => element.playbackRate)).toBe(1.25);
+    await mobile.getByLabel("Correo electrónico").focus();
+    await expect.poll(() => mobileVideo.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false);
+    await mobile.screenshot({ path: "test-results/login-voxi-mobile.png", animations: "disabled" });
+    await mobile.goto("http://localhost:3100/register");
+    await expect(mobile.locator(".auth-voxi-video")).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
 test("login validates, stores HttpOnly session and logout protects merchant routes", async ({
   page,
   context,
@@ -249,14 +324,75 @@ test("orders filters, detail, dashboard stale data and desktop design", async ({
   ).toBeVisible();
   await expect(page.getByText("67.00 USDC", { exact: true })).toBeVisible();
 });
+test("dashboard rejects invalid responses, retries zero totals and preserves valid metrics", async ({
+  page,
+}) => {
+  await login(page);
+  let response = {
+    status: 200,
+    contentType: "text/html",
+    body: "<!doctype html><html><body>Another application</body></html>",
+  };
+  await page.route("**/api/backend/v1/analytics/today", (route) =>
+    route.fulfill(response),
+  );
+  const invalidResponses = [
+    response,
+    { status: 200, contentType: "application/json", body: "" },
+    { status: 200, contentType: "application/json", body: "null" },
+    { status: 204, contentType: "application/json", body: "" },
+    {
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ totalAmount: "invalid", count: 2 }),
+    },
+  ];
+  for (const invalid of invalidResponses) {
+    response = invalid;
+    await page.goto("/dashboard");
+    await expect(
+      page.getByRole("heading", { name: "No pudimos cargar el resumen" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Actualizar" })).toBeVisible();
+    await expect(page.getByText("Total cobrado hoy", { exact: true })).toHaveCount(0);
+  }
+
+  response = {
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      totalAmount: "0",
+      count: 0,
+      from: "2026-10-09T00:00:00Z",
+      to: "2026-10-09T12:00:00Z",
+    }),
+  };
+  await page.getByRole("button", { name: "Actualizar" }).click();
+  await expect(page.getByText("0.00 USDC", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".metric").filter({ hasText: "Pedidos pagados" }).locator("strong"),
+  ).toHaveText("0");
+  await expect(page.getByText("Aún no hay pagos confirmados hoy")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "No pudimos cargar el resumen" }),
+  ).toHaveCount(0);
+
+  response.body = "{}";
+  await page.getByRole("button", { name: "Actualizar" }).click();
+  await expect(
+    page.getByText("Mostramos el último resumen disponible.", { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText("0.00 USDC", { exact: true })).toBeVisible();
+});
 test("voice records, confirms once, generates real payment URL QR and receives paid event", async ({
   page,
   request,
 }) => {
   await login(page);
-  const record = page
-    .getByRole("button", { name: "Grabar instrucción", exact: true })
-    .last();
+  const record = page.getByRole("button", {
+    name: "Grabar instrucción",
+    exact: true,
+  });
   await expect(record).toBeEnabled();
   await record.click();
   await expect(
@@ -507,9 +643,10 @@ test("microphone denial is recoverable and never creates an order", async ({
     };
   });
   await login(page);
-  const record = page
-    .getByRole("button", { name: "Grabar instrucción", exact: true })
-    .last();
+  const record = page.getByRole("button", {
+    name: "Grabar instrucción",
+    exact: true,
+  });
   await expect(record).toBeEnabled();
   await record.click();
   await expect(
@@ -528,9 +665,10 @@ test("uncertain voice confirmation does not offer automatic resubmission", async
   page,
 }) => {
   await login(page);
-  const record = page
-    .getByRole("button", { name: "Grabar instrucción", exact: true })
-    .last();
+  const record = page.getByRole("button", {
+    name: "Grabar instrucción",
+    exact: true,
+  });
   await expect(record).toBeEnabled();
   await record.click();
   await page.waitForTimeout(800);

@@ -15,7 +15,7 @@ import {
 } from "@/components/ui";
 import { useResource } from "@/hooks/use-resource";
 import { ApiError, errorMessage } from "@/services/api-client";
-import { money } from "@/lib/domain";
+import { isDailyAnalytics, money } from "@/lib/domain";
 import { connectNotifications, onEvent } from "@/lib/socket";
 import type { DailyAnalytics } from "@/types/domain";
 export function DashboardView() {
@@ -23,6 +23,7 @@ export function DashboardView() {
   const { data, loading, error, refresh } = useResource<DailyAnalytics>(
     "/v1/analytics/today",
     30_000,
+    isDailyAnalytics,
   );
   useEffect(() => {
     if (!merchant) return;
@@ -42,22 +43,27 @@ export function DashboardView() {
         title="Dashboard"
         description="Resumen de tus cobros de hoy."
       />
-      <div className="row between">
+      <div className="row between wrap dashboard-toolbar">
         <p>
           {data
             ? `Hoy · ${new Date(data.from).toLocaleDateString("es-PE", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })} (UTC)`
             : "Hoy (UTC)"}
         </p>
-        <Button variant="secondary" onClick={refresh} busy={loading}>
-          Actualizar{!loading && <RefreshCw size={20} aria-hidden="true" />}
-        </Button>
+        <div className="row wrap dashboard-actions">
+          <ButtonLink href="/pos">Nuevo cobro</ButtonLink>
+          <ButtonLink secondary href="/orders">
+            Ver pedidos
+          </ButtonLink>
+          <Button variant="secondary" onClick={refresh} busy={loading}>
+            Actualizar{!loading && <RefreshCw size={20} aria-hidden="true" />}
+          </Button>
+        </div>
       </div>
       {loading && !data ? (
         <Loading label="Cargando resumen" />
       ) : error && !data ? (
         <EmptyState
           title="No pudimos cargar el resumen"
-          action={<Button onClick={refresh}>Reintentar</Button>}
         >
           {error instanceof ApiError && error.status === 404
             ? "Las métricas del día todavía no están disponibles en la API."
@@ -105,7 +111,6 @@ export function DashboardView() {
                 <VoxiScene pose="greeting" />
                 <h2>Tu próximo cobro empieza aquí</h2>
                 <p>Crea un cobro por voz para comenzar el día.</p>
-                <ButtonLink href="/pos">Nuevo cobro</ButtonLink>
               </Card>
             )}
             <small>
@@ -120,12 +125,6 @@ export function DashboardView() {
           </>
         )
       )}
-      <div className="row wrap">
-        <ButtonLink href="/pos">Nuevo cobro</ButtonLink>
-        <ButtonLink secondary href="/orders">
-          Ver pedidos
-        </ButtonLink>
-      </div>
       <Footer>
         <p>El día se calcula de 00:00 a 23:59 UTC.</p>
       </Footer>
