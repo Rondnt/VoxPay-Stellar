@@ -69,12 +69,14 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
   const orderId = useRef(initialOrderId ?? "");
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
+  const audioCtx = useRef<AudioContext | null>(null);
+  const silenceFrame = useRef<number | null>(null);
   const mounted = useRef(true);
   const locked = useRef(false);
   const discard = useRef(false);
   const pendingEvents = useRef(new Map<string, VoiceConfirmation>());
 
-  // "VoxPay" solo escucha mientras no hay nada más usando el micrófono, y solo una vez que el
+  // "Voxy" solo escucha mientras no hay nada más usando el micrófono, y solo una vez que el
   // permiso ya está CONFIRMADO (Chrome exige que la primera solicitud venga de un clic real; ver
   // use-mic-permission.ts). Al detectarla dispara el mismo record() que un clic manual.
   const micPermission = useMicPermission();
@@ -151,6 +153,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
     return () => {
       mounted.current = false;
       discard.current = true;
+      stopSilenceWatcher();
       if (recorder.current?.state === "recording") recorder.current.stop();
       stream.current?.getTracks().forEach((t) => t.stop());
     };
@@ -268,6 +271,64 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
       }
     }
   }
+  function stopSilenceWatcher() {
+    if (silenceFrame.current !== null) {
+      cancelAnimationFrame(silenceFrame.current);
+      silenceFrame.current = null;
+    }
+    if (audioCtx.current) {
+      void audioCtx.current.close().catch(() => {});
+      audioCtx.current = null;
+    }
+  }
+  // Detiene la grabación sola cuando el comerciante deja de hablar, en vez de obligarlo a tocar
+  // "Detener" -- analiza el volumen del mismo stream del MediaRecorder (Web Audio API, en paralelo,
+  // no reemplaza nada). Exige haber escuchado voz real primero (speechDetected) para no cortar antes
+  // de que arranque a hablar, y un mínimo de grabación (MIN_RECORDING_MS) como red de seguridad.
+  function startSilenceWatcher(media: MediaStream) {
+    const SILENCE_THRESHOLD = 0.02;
+    const SILENCE_DURATION_MS = 1400;
+    const MIN_RECORDING_MS = 1000;
+    const AudioContextCtor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const ctx = new AudioContextCtor();
+    audioCtx.current = ctx;
+    const source = ctx.createMediaStreamSource(media);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.fftSize);
+    const start = performance.now();
+    let speechDetected = false;
+    let silenceStart: number | null = null;
+
+    function tick() {
+      analyser.getByteTimeDomainData(data);
+      let sumSquares = 0;
+      for (let i = 0; i < data.length; i++) {
+        const normalized = (data[i] - 128) / 128;
+        sumSquares += normalized * normalized;
+      }
+      const rms = Math.sqrt(sumSquares / data.length);
+      const now = performance.now();
+      if (rms > SILENCE_THRESHOLD) {
+        speechDetected = true;
+        silenceStart = null;
+      } else if (speechDetected && now - start > MIN_RECORDING_MS) {
+        if (silenceStart === null) silenceStart = now;
+        else if (now - silenceStart > SILENCE_DURATION_MS) {
+          stopSilenceWatcher();
+          if (recorder.current?.state === "recording") recorder.current.stop();
+          return;
+        }
+      }
+      silenceFrame.current = requestAnimationFrame(tick);
+    }
+    silenceFrame.current = requestAnimationFrame(tick);
+  }
   async function record() {
     if (locked.current || !connected || !merchant?.operatorAuthorized) return;
     locked.current = true;
@@ -307,6 +368,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
         if (event.data.size) chunks.push(event.data);
       };
       instance.onstop = () => {
+        stopSilenceWatcher();
         media.getTracks().forEach((t) => t.stop());
         if (!mounted.current || discard.current) return;
         const blob = new Blob(chunks, {
@@ -316,6 +378,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
         void upload(blob);
       };
       instance.onerror = () => {
+        stopSilenceWatcher();
         discard.current = true;
         media.getTracks().forEach((t) => t.stop());
         setFailure("No se pudo grabar el audio. Inténtalo nuevamente.");
@@ -323,6 +386,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
       };
       instance.start();
       playActivationChime();
+      startSilenceWatcher(media);
       setSeconds(0);
       setStage("recording");
     } catch (err) {
@@ -338,6 +402,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
     }
   }
   function cancelRecording() {
+    stopSilenceWatcher();
     discard.current = true;
     recorder.current?.stop();
     stream.current?.getTracks().forEach((t) => t.stop());

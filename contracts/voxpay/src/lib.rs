@@ -26,7 +26,7 @@ pub struct Split {
     pub amount: i128,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct Order {
     pub merchant: Address,

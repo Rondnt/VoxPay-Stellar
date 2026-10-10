@@ -11,6 +11,11 @@ publish = false
 # (curve25519-dalek, ark-bn254, k256, p256, ...) excede el límite de ordinales de export de una DLL PE.
 crate-type = ["rlib"]
 
+# Nota Windows: si `cargo test` falla al linkear con "cannot find -lgcc_eh" o símbolos
+# `mingw_app_type`/`mingw_init*` sin resolver, es un GCC de sistema (p.ej. TDM-GCC) mezclado con los
+# objetos de rustup -- correr con `RUSTFLAGS="-C link-self-contained=yes"` para que rustc use su propio
+# toolchain GNU autocontenido (crt + libgcc_eh + ld) en vez del de sistema.
+
 [dependencies]
 soroban-sdk = "26"
 

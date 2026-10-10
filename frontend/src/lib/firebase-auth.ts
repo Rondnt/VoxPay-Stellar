@@ -26,6 +26,10 @@ export async function syncFirebaseSession(user: User) {
     );
 }
 
+export async function clearFirebaseSession() {
+  await fetch("/api/firebase-session", { method: "DELETE" });
+}
+
 export function firebaseAuthError(error: unknown): string {
   const code =
     error && typeof error === "object" && "code" in error

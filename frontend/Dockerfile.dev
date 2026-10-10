@@ -1,0 +1,13 @@
+# Imagen de desarrollo: `next dev`, sin build de producción. Para prod usar Dockerfile.cloudrun.
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

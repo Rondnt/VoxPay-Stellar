@@ -43,12 +43,18 @@ export function MerchantShell({ children }: { children: ReactNode }) {
   } = useResource<Merchant>("/v1/merchants/me");
   async function logout() {
     try {
-      const [{ getFirebaseAuth }, { signOut }] = await Promise.all([
-        import("@/lib/firebase"),
-        import("firebase/auth"),
-      ]);
+      const [{ getFirebaseAuth }, { signOut }, { clearFirebaseSession }] =
+        await Promise.all([
+          import("@/lib/firebase"),
+          import("firebase/auth"),
+          import("@/lib/firebase-auth"),
+        ]);
       await signOut(getFirebaseAuth());
-      await apiClient.post("/v1/auth/logout");
+      // La cookie httpOnly la borra el propio Next.js (otro origen no puede); el logout del backend
+      // es solo informativo (JWT/Firebase son stateless), así que no debe bloquear el redirect si
+      // falla por lo que sea.
+      await clearFirebaseSession();
+      apiClient.post("/v1/auth/logout").catch(() => {});
       router.replace("/login");
       router.refresh();
     } catch (err) {

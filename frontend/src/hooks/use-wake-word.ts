@@ -34,15 +34,15 @@ function getRecognitionCtor(): SpeechRecognitionCtor | null {
 export const isWakeWordSupported =
   typeof window !== "undefined" && !!getRecognitionCtor();
 
-// "Vox" solo (sin "Pay") se descartó: probado en vivo, el reconocimiento lo escucha como "box" o
-// "vos" -- nunca como "vox"/"voz" -- y "vos" es el pronombre informal de uso diario en Perú y
-// Argentina, así que solo esa palabra dispararía falsos positivos todo el tiempo. La palabra
-// completa "VoxPay" agrega una segunda sílaba distintiva ("pay") que ninguna palabra común del
-// español tiene pegada atrás de "box"/"vos"/"voz", así que exigir ambas sílabas juntas baja mucho
-// el choque con habla normal. Se generan todas las combinaciones de sílaba1+sílaba2 (con y sin
-// espacio) porque no sabemos de antemano cuál va a transcribir el reconocimiento.
-const FIRST_SYLLABLE = ["box", "vos", "voz", "vox"];
-const SECOND_SYLLABLE = ["pay", "pei"];
+// "Vox" solo se descartó: probado en vivo, el reconocimiento lo escucha como "box" o "vos" -- nunca
+// como "vox"/"voz" -- y "vos" es el pronombre informal de uso diario en Perú y Argentina, así que
+// esa palabra sola dispararía falsos positivos todo el tiempo. "VoxPay" (con "pay" separado) se
+// probó después y tampoco enganchaba de forma confiable. Ahora la palabra de activación es "Voxy"
+// (como el mascota "Voxi" del POS) -- se generan todas las combinaciones de la sílaba inicial
+// ("box"/"vos"/"voz"/"vox") con la terminación en "i"/"y" (con y sin espacio) porque no sabemos de
+// antemano cómo la va a transcribir el reconocimiento del navegador.
+const FIRST_SYLLABLE = ["box", "vos", "voz", "vox", "bos"];
+const SECOND_SYLLABLE = ["y", "i"];
 const WAKE_PHRASES = FIRST_SYLLABLE.flatMap((first) =>
   SECOND_SYLLABLE.flatMap((second) => [`${first}${second}`, `${first} ${second}`]),
 );
@@ -61,7 +61,7 @@ function normalize(text: string): string {
 }
 
 /**
- * Detección de palabra de activación ("VoxPay") en segundo plano -- Web Speech API nativa del
+ * Detección de palabra de activación ("Voxy") en segundo plano -- Web Speech API nativa del
  * navegador (gratis, sin pasar por Groq/nuestro backend).
  *
  * Nota de privacidad: mientras `enabled` es true, el navegador transmite el audio del micrófono a
@@ -107,7 +107,11 @@ export function useWakeWord(onWake: () => void, enabled: boolean) {
       if (!Ctor2 || !shouldRunRef.current) return;
       const recognition = new Ctor2();
       recognition.lang = "es-PE";
-      recognition.continuous = true;
+      // `continuous: true` es conocido por abortarse solo en Chrome tras segundos de escucha en
+      // segundo plano (probado en vivo: loop de "aborted" cada ~1s, sin ventana real para hablar).
+      // En `false`, cada sesión procesa una sola frase y termina -- encadenamos sesiones cortas en
+      // vez de una larga, que es el patrón que de verdad se sostiene en el tiempo.
+      recognition.continuous = false;
       recognition.interimResults = true;
 
       recognition.onresult = (e) => {
@@ -117,7 +121,7 @@ export function useWakeWord(onWake: () => void, enabled: boolean) {
           const normalized = normalize(r[0].transcript);
           console.log("[useWakeWord] oído:", JSON.stringify(normalized));
           if (WAKE_PHRASES.some((p) => normalized.includes(p))) {
-            console.log('[useWakeWord] "VoxPay" detectado, activando...');
+            console.log('[useWakeWord] "Voxy" detectado, activando...');
             shouldRunRef.current = false;
             pendingWake = true;
             recognition.stop();

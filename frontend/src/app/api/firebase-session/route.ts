@@ -32,3 +32,16 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  if (!isSameOriginRequest(request)) {
+    return NextResponse.json(
+      { message: "Origen no permitido" },
+      { status: 403 },
+    );
+  }
+  const response = NextResponse.json({ authenticated: false });
+  response.cookies.delete("voxpay_session");
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
