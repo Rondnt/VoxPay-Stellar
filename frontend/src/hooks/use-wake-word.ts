@@ -144,6 +144,10 @@ export function useWakeWord(onWake: () => void, enabled: boolean) {
           fireWakeOnce();
           return;
         }
+        // Si la pestaña está en segundo plano, Chrome aborta cualquier sesión de reconocimiento
+        // casi al instante -- reintentar ahí mismo solo genera un loop apretado inútil (visto en
+        // vivo: "aborted" en cada intento). Se espera a que vuelva a estar visible.
+        if (document.hidden) return;
         // Nunca reiniciar sin ninguna pausa -- el navegador puede cortar la sesión casi al
         // instante en algunas condiciones (silencio, etc.), y sin este piso mínimo eso se
         // convierte en un bucle apretadísimo que nunca le da tiempo real de escucha.
@@ -164,9 +168,17 @@ export function useWakeWord(onWake: () => void, enabled: boolean) {
 
     startListening();
 
+    function onVisible() {
+      if (!document.hidden && shouldRunRef.current && !recognitionRef.current) {
+        startListening();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
       shouldRunRef.current = false;
       pendingWake = false;
+      document.removeEventListener("visibilitychange", onVisible);
       if (retryTimer) clearTimeout(retryTimer);
       if (releaseConfirmTimer) clearTimeout(releaseConfirmTimer);
       recognitionRef.current?.stop();

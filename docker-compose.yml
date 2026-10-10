@@ -25,6 +25,10 @@ services:
     # cuentas y datos de Firestore. --import/--export-on-exit los persiste en un volumen con nombre,
     # así sobreviven a `docker compose restart`/`down`+`up` (export-on-exit solo corre con un apagado
     # prolijo -- SIGTERM/SIGINT -- no con un kill -9; `docker compose stop`/`restart` sí mandan SIGTERM).
+    # stop_grace_period: el export tarda más que los 10s por defecto de Docker -- sin esto, Docker manda
+    # SIGKILL a mitad de la exportación (visto en vivo: contenedor con exit code 137, metadata de
+    # export corrupta/incompleta, y la cuenta registrada se pierde igual que sin --export-on-exit).
+    stop_grace_period: 45s
     command:
       [
         "firebase",
