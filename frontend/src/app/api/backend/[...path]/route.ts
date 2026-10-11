@@ -23,6 +23,8 @@ function isFirebaseToken(token: string): boolean {
 const routes: Record<string, RegExp[]> = {
   GET: [
     /^v1\/merchants\/me$/,
+    /^v1\/merchants\/reserve\/balance$/,
+    /^v1\/merchants\/reserve\/withdrawals$/,
     /^v1\/recipients$/,
     /^v1\/orders(?:\/[\w-]+)?$/,
     /^v1\/public\/orders\/[\w-]+$/,
@@ -33,9 +35,10 @@ const routes: Record<string, RegExp[]> = {
     /^v1\/recipients$/,
     /^v1\/voice\/commands(?:\/[\w-]+\/confirm)?$/,
     /^v1\/merchants\/operator\/(tx|submit)$/,
+    /^v1\/merchants\/reserve\/withdraw\/(tx|submit)$/,
     /^v1\/public\/orders\/[\w-]+\/(tx|submit)$/,
   ],
-  PATCH: [/^v1\/recipients\/[\w-]+$/, /^v1\/merchants\/wallet$/],
+  PATCH: [/^v1\/recipients\/[\w-]+$/, /^v1\/merchants\/wallet$/, /^v1\/merchants\/reserve$/],
   DELETE: [/^v1\/recipients\/[\w-]+$/],
 };
 async function handler(

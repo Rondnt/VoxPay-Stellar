@@ -50,6 +50,7 @@ export class OrdersProcessor extends WorkerHost {
         recipient: split.stellarAddress,
         amount: SorobanService.toContractAmount(split.amount),
       })),
+      reserve: SorobanService.toContractAmount(Number(order.reserveAmount ?? 0)),
     });
 
     await this.repository.update(order.id, { createTxHash: hash });

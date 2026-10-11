@@ -18,6 +18,7 @@ export interface Order {
   orderRef: string;
   amount: string;
   splitsJson: OrderSplit[];
+  reserveAmount: string;
   status: OrderStatus;
   createTxHash: string | null;
   payTxHash: string | null;
@@ -29,6 +30,7 @@ export interface CreateOrderData {
   orderRef: string;
   amount: number;
   splitsJson: OrderSplit[];
+  reserveAmount: number;
   status: OrderStatus;
 }
 
@@ -113,6 +115,7 @@ export class OrdersRepository {
         orderRef: data.orderRef,
         amount: data.amount.toString(),
         splitsJson: data.splitsJson,
+        reserveAmount: data.reserveAmount.toString(),
         status: data.status,
         createTxHash: null,
         payTxHash: null,

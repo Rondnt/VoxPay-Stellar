@@ -104,6 +104,12 @@ export class SorobanService {
     return this.spec.funcResToNative('get_order', retval) as Order;
   }
 
+  /** Lectura on-chain de cuánto tiene retenido un comerciante en reserva (get_reserve_balance). */
+  async getReserveBalance(merchantAddress: string): Promise<bigint> {
+    const retval = await this.simulateReadOnly('get_reserve_balance', { merchant: merchantAddress });
+    return this.spec.funcResToNative('get_reserve_balance', retval) as bigint;
+  }
+
   private async simulateReadOnly(method: string, args: object): Promise<xdr.ScVal> {
     const account = await this.server.getAccount(this.operatorKeypair.publicKey());
     const tx = new TransactionBuilder(account, {
@@ -140,5 +146,10 @@ export class SorobanService {
    */
   static toContractAmount(amount: number, decimals = 7): bigint {
     return BigInt(Math.round(amount * 10 ** decimals));
+  }
+
+  /** Inverso de `toContractAmount`: la unidad mínima que devuelve el contrato (ej. get_reserve_balance) a USDC decimal. */
+  static fromContractAmount(amount: bigint, decimals = 7): number {
+    return Number(amount) / 10 ** decimals;
   }
 }

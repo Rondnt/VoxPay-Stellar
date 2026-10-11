@@ -7,6 +7,7 @@ import { QUEUE_NAMES } from '../../infrastructure/queue/queue.constants.js';
 import type { CreateOrderDto } from '../orders/dto/create-order.dto.js';
 import { MerchantsService } from '../merchants/merchants.service.js';
 import { OrdersService } from '../orders/orders.service.js';
+import type { ConfirmVoiceCommandDto } from './dto/confirm-voice-command.dto.js';
 
 interface VoiceCommandJobData {
   commandId: string;
@@ -63,8 +64,12 @@ export class VoiceAgentService {
     return { commandId: ref.id };
   }
 
-  /** El comerciante confirma la intención ya interpretada por Raven; esto crea la orden. */
-  async confirm(tenantId: string, commandId: string) {
+  /**
+   * El comerciante confirma la intención ya interpretada por Raven; esto crea la orden. `overrides`
+   * son las correcciones que el comerciante haya hecho en la revisión (monto y/o reparto mal
+   * transcriptos) sin tener que volver a grabar -- si no manda nada, se usa tal cual lo interpretado.
+   */
+  async confirm(tenantId: string, commandId: string, overrides: ConfirmVoiceCommandDto = {}) {
     const merchant = await this.merchants.findByTenant(tenantId);
     const doc = await this.collection.doc(commandId).get();
     const data = doc.data() as StoredVoiceCommand | undefined;
@@ -79,11 +84,13 @@ export class VoiceAgentService {
 
     const dto: CreateOrderDto = {
       orderRef: intent.order_ref,
-      amount: intent.amount,
-      splits: (intent.splits ?? []).map((split) => ({
-        recipientAlias: split.recipient_alias,
-        amount: split.amount,
-      })),
+      amount: overrides.amount ?? intent.amount,
+      splits:
+        overrides.splits ??
+        (intent.splits ?? []).map((split) => ({
+          recipientAlias: split.recipient_alias,
+          amount: split.amount,
+        })),
     };
 
     const order = await this.orders.createFromIntent(merchant.id, dto);

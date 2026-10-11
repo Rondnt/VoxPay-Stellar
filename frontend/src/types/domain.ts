@@ -5,6 +5,7 @@ export interface Merchant {
   tenantId: string;
   stellarAddress: string;
   operatorAuthorized: boolean;
+  reservePercentage: number;
 }
 export interface Recipient {
   id: string;
@@ -27,7 +28,13 @@ export interface PublicOrder {
 export interface Order extends PublicOrder {
   merchantId: string;
   splitsJson: Split[];
+  reserveAmount: string;
   createTxHash: string | null;
+  createdAt: string;
+}
+export interface ReserveWithdrawal {
+  amount: string;
+  txHash: string;
   createdAt: string;
 }
 export interface DailyAnalytics {

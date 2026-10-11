@@ -626,6 +626,13 @@ input[aria-invalid="true"] {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  /* El fondo horneado en el video/poster es un gris casi blanco (~#fcfcfc), no el #fff exacto de
+     la página -- a simple vista es casi imperceptible, pero el borde recto del cuadro del video
+     contra el fondo real crea una línea visible (reportado en vivo, no solo en fotos). Se difumina
+     el borde con una máscara radial en vez de tocar el video horneado -- a este radio no llega a
+     recortar nada del personaje (cola/patas quedan bien adentro del cuadro). */
+  -webkit-mask-image: radial-gradient(circle at center, #000 92%, transparent 100%);
+  mask-image: radial-gradient(circle at center, #000 92%, transparent 100%);
 }
 .auth-welcome-bubble {
   position: absolute;

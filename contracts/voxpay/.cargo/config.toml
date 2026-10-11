@@ -1,0 +1,8 @@
+# This machine also has TDM-GCC-64 earlier on PATH, which lacks libgcc_eh.a
+# and is incompatible with rustup's bundled mingw runtime objects. Point the
+# windows-gnu host target explicitly at the MSYS2 mingw64 toolchain instead
+# of relying on PATH order, so `cargo test` works regardless of other tools
+# installed on this machine.
+[target.x86_64-pc-windows-gnu]
+linker = "C:/msys64/mingw64/bin/gcc.exe"
+ar = "C:/msys64/mingw64/bin/ar.exe"

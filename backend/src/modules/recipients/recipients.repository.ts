@@ -4,6 +4,15 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { FirestoreService } from '../../infrastructure/firestore/firestore.service.js';
 import { timestampToIso } from '../../infrastructure/firestore/firestore.utils.js';
 
+/** Para comparar alias ignorando tildes/mayúsculas (ej. "José" interpretado por voz vs "Jose" tal
+ * como lo haya tipeado el comerciante al crear el destinatario). */
+function normalizeAlias(alias: string): string {
+  return alias
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
+}
+
 export interface Recipient {
   id: string;
   merchantId: string;
@@ -52,10 +61,19 @@ export class RecipientsRepository {
     return entity.merchantId === merchantId ? entity : null;
   }
 
-  /** Doc ID determinístico `${merchantId}_${alias}` → lookup O(1), sin query. */
+  /**
+   * Doc ID determinístico `${merchantId}_${alias}` → lookup O(1), sin query. Si no matchea exacto,
+   * recurre a comparar alias normalizados (sin tildes/mayúsculas): la voz transcribe nombres con sus
+   * tildes correctas (ej. "José") aunque el comerciante haya guardado el alias sin tilde ("Jose"), y
+   * sin este fallback ese cobro se rechazaría siempre con "Unknown recipient alias".
+   */
   async findByAlias(merchantId: string, alias: string): Promise<Recipient | null> {
     const doc = await this.collection.doc(`${merchantId}_${alias}`).get();
-    return doc.exists ? this.toEntity(doc) : null;
+    if (doc.exists) return this.toEntity(doc);
+
+    const target = normalizeAlias(alias);
+    const recipients = await this.findAllByMerchant(merchantId);
+    return recipients.find((r) => normalizeAlias(r.alias) === target) ?? null;
   }
 
   /**

@@ -12,6 +12,7 @@ function buildOrder(overrides: Partial<Order> = {}): Order {
     orderRef: '52',
     amount: '30',
     splitsJson: [],
+    reserveAmount: '0',
     status: 'PENDING',
     createTxHash: 'create-hash',
     payTxHash: null,

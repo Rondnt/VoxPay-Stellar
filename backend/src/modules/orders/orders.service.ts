@@ -38,7 +38,13 @@ export class OrdersService {
       splitsTotal += split.amount;
     }
 
-    if (splitsTotal > dto.amount) {
+    // % configurado por el comerciante (ver merchants.service.ts#setReserveConfig), aplicado acá --
+    // no por voz -- y congelado en la orden: si el comerciante cambia el % después, no afecta órdenes
+    // ya creadas.
+    const merchant = await this.merchants.findById(merchantId);
+    const reserveAmount = Math.round(dto.amount * (merchant.reservePercentage / 100) * 1e7) / 1e7;
+
+    if (splitsTotal + reserveAmount > dto.amount) {
       throw new BadRequestException('Splits exceed order amount');
     }
 
@@ -47,6 +53,7 @@ export class OrdersService {
       orderRef: dto.orderRef,
       amount: dto.amount,
       splitsJson: resolvedSplits,
+      reserveAmount,
       status: 'PENDING',
     });
 

@@ -156,6 +156,9 @@
                       ]
                     }
                   ]
+                },
+                {
+                  "i128": "0"
                 }
               ]
             }
@@ -386,6 +389,14 @@
                     },
                     "val": {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "reserve"
+                    },
+                    "val": {
+                      "i128": "0"
                     }
                   },
                   {

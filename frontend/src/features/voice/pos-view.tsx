@@ -10,6 +10,7 @@ import {
   FileText,
   ArrowRight,
   AudioLines,
+  Pencil,
 } from "lucide-react";
 import { VoxiScene } from "@/components/voxi";
 import { PaymentProgress } from "@/components/payment-progress";
@@ -63,6 +64,12 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
   const [copied, setCopied] = useState(false);
   const [examplesOpen, setExamplesOpen] = useState(false);
   const [editingInstruction, setEditingInstruction] = useState(false);
+  const [editingFields, setEditingFields] = useState(false);
+  const [draftAmount, setDraftAmount] = useState("");
+  const [draftSplits, setDraftSplits] = useState<
+    { recipientAlias: string; amount: string }[]
+  >([]);
+  const [editFieldsFailure, setEditFieldsFailure] = useState("");
   const [paymentUrl, setPaymentUrl] = useState("");
   const [audio, setAudio] = useState<Blob | null>(null);
   const commandId = useRef("");
@@ -144,6 +151,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
     }
     setIntent(parsed);
     setEditingInstruction(false);
+    setEditingFields(false);
     setStage("review");
     setFailure("");
   }, []);
@@ -161,8 +169,27 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
   useEffect(() => {
     if (!merchant) return;
     const socket = connectNotifications(merchant.id);
-    socket.on("connect", () => setConnected(true));
-    socket.on("disconnect", () => setConnected(false));
+    let serverDisconnects = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    socket.on("connect", () => {
+      serverDisconnects = 0;
+      setConnected(true);
+    });
+    socket.on("disconnect", (reason) => {
+      setConnected(false);
+      // En una recarga completa, Firebase Auth puede no haber restaurado `currentUser` todavía
+      // cuando el socket intenta conectar por primera vez -- el backend rechaza el token vacío y
+      // desconecta a propósito. socket.io-client NO reintenta solo ante un corte iniciado por el
+      // server ("io server disconnect"), así que queda colgado para siempre sin este reintento
+      // manual (visto en vivo: el banner "Conectando notificaciones" nunca se resuelve hasta
+      // navegar a otra página y volver, que crea una conexión nueva cuando el token ya está listo).
+      // Tope de intentos: si el token es inválido de verdad (sesión vencida), esto evita machacar
+      // al server en loop cerrado -- a esa altura el usuario va a ver el 401 de la API igual.
+      if (reason === "io server disconnect" && serverDisconnects < 5) {
+        serverDisconnects += 1;
+        retryTimer = setTimeout(() => socket.connect(), 500);
+      }
+    });
     socket.on("connect_error", () => setConnected(false));
     const off = onEvent(socket, (event, raw) => {
       if (!raw || typeof raw !== "object") return;
@@ -185,8 +212,19 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
       )
         void checkOrder();
     });
-    socket.connect();
+    // React Strict Mode monta este efecto dos veces seguidas en dev -- sin este diferido, la
+    // primera conexión llega a abrir el socket y el cleanup casi inmediato la corta a mitad del
+    // handshake, dejando un polling request de esa sesión ya descartada en el aire (visto en vivo:
+    // 400 "Bad Request" en /socket.io/ con un sid que el server ya no reconoce). Si el cleanup llega
+    // antes de que corra el timeout, connect() ni se llega a llamar -- no hay nada que cortar.
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (!cancelled) socket.connect();
+    }, 0);
     return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      if (retryTimer) clearTimeout(retryTimer);
       off();
       socket.disconnect();
     };
@@ -408,6 +446,56 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
     stream.current?.getTracks().forEach((t) => t.stop());
     setStage("idle");
   }
+  function startEditingFields() {
+    if (!intent) return;
+    setDraftAmount(String(intent.amount));
+    setDraftSplits(
+      intent.splits.map((s) => ({
+        recipientAlias: s.recipientAlias,
+        amount: String(s.amount),
+      })),
+    );
+    setEditFieldsFailure("");
+    setEditingFields(true);
+  }
+  function updateDraftSplit(
+    index: number,
+    patch: Partial<{ recipientAlias: string; amount: string }>,
+  ) {
+    setDraftSplits((prev) =>
+      prev.map((s, i) => (i === index ? { ...s, ...patch } : s)),
+    );
+  }
+  function saveFieldsEdit() {
+    const amount = Number(draftAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setEditFieldsFailure("Ingresa un monto total válido.");
+      return;
+    }
+    const splits: { recipientAlias: string; amount: number }[] = [];
+    for (const draft of draftSplits) {
+      const recipientAlias = draft.recipientAlias.trim();
+      const splitAmount = Number(draft.amount);
+      if (!recipientAlias) {
+        setEditFieldsFailure("Completa el nombre de cada persona.");
+        return;
+      }
+      if (!Number.isFinite(splitAmount) || splitAmount <= 0) {
+        setEditFieldsFailure(
+          `Ingresa un monto válido para ${recipientAlias}.`,
+        );
+        return;
+      }
+      splits.push({ recipientAlias, amount: splitAmount });
+    }
+    const splitsTotal = splits.reduce((sum, s) => sum + s.amount, 0);
+    if (splitsTotal > amount + 1e-7) {
+      setEditFieldsFailure("El reparto no puede superar el monto total.");
+      return;
+    }
+    setIntent((prev) => (prev ? { ...prev, amount, splits } : prev));
+    setEditingFields(false);
+  }
   async function confirm() {
     if (
       locked.current ||
@@ -424,6 +512,13 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
     try {
       const created = await apiClient.post<Order>(
         `/v1/voice/commands/${encodeURIComponent(confirmedCommandId)}/confirm`,
+        {
+          amount: intent.amount,
+          splits: intent.splits.map((s) => ({
+            recipientAlias: s.recipientAlias,
+            amount: Number(s.amount),
+          })),
+        },
       );
       orderId.current = created.id;
       setOrder(created);
@@ -462,6 +557,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
     setStage("idle");
     setCopied(false);
     setEditingInstruction(false);
+    setEditingFields(false);
     window.history.replaceState(null, "", "/pos");
   }
 
@@ -564,7 +660,11 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
               <Amount value={order.amount} />
             </div>
             <hr />
-            <Splits splits={order.splitsJson ?? []} amount={order.amount} />
+            <Splits
+              splits={order.splitsJson ?? []}
+              amount={order.amount}
+              reserveAmount={order.reserveAmount}
+            />
             <div className="confirmation-actions stack">
               {stage === "paid" && (
                 <Notice success>
@@ -706,7 +806,9 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
                     ? "Preparando tu instrucción…"
                     : transcript
                       ? "Toca para volver a grabar"
-                      : "Toca para hablar"}
+                      : wakeWordEnabled
+                        ? "Toca para hablar o decí «Voxy»"
+                        : "Toca para hablar"}
               </span>
             </div>
             <div className="transcript" aria-live="polite">
@@ -727,6 +829,69 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
               </div>
               <AudioLines size={40} aria-hidden="true" />
             </div>
+            {intent &&
+              !recording &&
+              stage !== "interpreting" &&
+              stage !== "uploading" &&
+              (editingFields ? (
+                <div className="stack intent-edit">
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={draftAmount}
+                    onChange={(e) => setDraftAmount(e.target.value)}
+                    aria-label="Monto total"
+                    placeholder="Monto total"
+                  />
+                  {draftSplits.map((split, i) => (
+                    <div className="row wrap" key={i}>
+                      <input
+                        type="text"
+                        value={split.recipientAlias}
+                        onChange={(e) =>
+                          updateDraftSplit(i, {
+                            recipientAlias: e.target.value,
+                          })
+                        }
+                        aria-label={`Nombre de la persona ${i + 1}`}
+                        placeholder="Nombre"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={split.amount}
+                        onChange={(e) =>
+                          updateDraftSplit(i, { amount: e.target.value })
+                        }
+                        aria-label={`Monto para la persona ${i + 1}`}
+                        placeholder="Monto"
+                      />
+                    </div>
+                  ))}
+                  {editFieldsFailure && (
+                    <Notice error>{editFieldsFailure}</Notice>
+                  )}
+                  <div className="row">
+                    <Button onClick={saveFieldsEdit}>Guardar</Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setEditFieldsFailure("");
+                        setEditingFields(false);
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button variant="secondary" onClick={startEditingFields}>
+                  <Pencil size={18} aria-hidden="true" />
+                  Editar monto y reparto
+                </Button>
+              ))}
             {recording && (
               <div className="stack recording-actions">
                 <Button variant="secondary" onClick={cancelRecording}>
@@ -778,7 +943,13 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
             </div>
             <hr />
             {intent ? (
-              <Splits splits={intent.splits} amount={intent.amount} />
+              <Splits
+                splits={intent.splits}
+                amount={intent.amount}
+                reserveAmount={
+                  (intent.amount * (merchant?.reservePercentage ?? 0)) / 100
+                }
+              />
             ) : (
               <p>
                 Graba una instrucción para revisar el importe y el reparto antes

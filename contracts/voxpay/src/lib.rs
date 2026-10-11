@@ -9,6 +9,7 @@ enum DataKey {
     Token,
     Operator(Address),
     Order(String),
+    ReserveBalance(Address),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -32,6 +33,7 @@ pub struct Order {
     pub merchant: Address,
     pub amount: i128,
     pub splits: Vec<Split>,
+    pub reserve: i128,
     pub status: OrderStatus,
     pub created_at: u64,
 }
@@ -58,6 +60,13 @@ pub struct OrderCancelled {
     pub caller: Address,
 }
 
+#[contractevent(topics = ["reserve_withdrawn"])]
+pub struct ReserveWithdrawn {
+    #[topic]
+    pub merchant: Address,
+    pub amount: i128,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -69,6 +78,7 @@ pub enum Error {
     OrderNotPending = 5,
     InvalidAmount = 6,
     SplitsExceedAmount = 7,
+    InsufficientReserve = 8,
 }
 
 #[contract]
@@ -102,6 +112,7 @@ impl VoxPayContract {
         order_id: String,
         amount: i128,
         splits: Vec<Split>,
+        reserve: i128,
     ) {
         operator.require_auth();
 
@@ -117,8 +128,12 @@ impl VoxPayContract {
             panic_with_error!(env, Error::InvalidAmount);
         }
 
+        if reserve < 0 {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+
         let splits_total: i128 = splits.iter().map(|s| s.amount).sum();
-        if splits_total > amount {
+        if splits_total + reserve > amount {
             panic_with_error!(env, Error::SplitsExceedAmount);
         }
 
@@ -131,6 +146,7 @@ impl VoxPayContract {
             merchant: merchant.clone(),
             amount,
             splits,
+            reserve,
             status: OrderStatus::Pending,
             created_at: env.ledger().timestamp(),
         };
@@ -161,6 +177,13 @@ impl VoxPayContract {
         for split in order.splits.iter() {
             token_client.transfer(&payer, &split.recipient, &split.amount);
             remaining -= split.amount;
+        }
+        if order.reserve > 0 {
+            token_client.transfer(&payer, &env.current_contract_address(), &order.reserve);
+            let reserve_key = DataKey::ReserveBalance(order.merchant.clone());
+            let current: i128 = env.storage().persistent().get(&reserve_key).unwrap_or(0);
+            env.storage().persistent().set(&reserve_key, &(current + order.reserve));
+            remaining -= order.reserve;
         }
         token_client.transfer(&payer, &order.merchant, &remaining);
 
@@ -206,6 +229,37 @@ impl VoxPayContract {
             .persistent()
             .get(&DataKey::Order(order_id))
             .unwrap_or_else(|| panic_with_error!(env, Error::OrderNotFound))
+    }
+
+    /// El comerciante retira (total o parcialmente) lo que `pay()` fue acumulando en su reserva.
+    /// Única forma de mover esos fondos: hasta acá, quedan bloqueados en el propio contrato.
+    pub fn withdraw_reserve(env: Env, merchant: Address, amount: i128) {
+        merchant.require_auth();
+
+        if amount <= 0 {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+
+        let key = DataKey::ReserveBalance(merchant.clone());
+        let balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        if amount > balance {
+            panic_with_error!(env, Error::InsufficientReserve);
+        }
+        env.storage().persistent().set(&key, &(balance - amount));
+
+        let token_address: Address = env.storage().instance().get(&DataKey::Token).unwrap();
+        let token_client = token::Client::new(&env, &token_address);
+        token_client.transfer(&env.current_contract_address(), &merchant, &amount);
+
+        ReserveWithdrawn { merchant, amount }.publish(&env);
+    }
+
+    /// Lectura pública: cuánto tiene un comerciante retenido en reserva, listo para retirar.
+    pub fn get_reserve_balance(env: Env, merchant: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ReserveBalance(merchant))
+            .unwrap_or(0)
     }
 }
 

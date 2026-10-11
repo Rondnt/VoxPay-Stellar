@@ -50,7 +50,7 @@ fn create_and_pay_order_splits_funds() {
             amount: 3,
         },
     ];
-    client.create_order(&operator, &merchant, &order_id, &30, &splits);
+    client.create_order(&operator, &merchant, &order_id, &30, &splits, &0);
 
     let order = client.get_order(&order_id);
     assert_eq!(order.amount, 30);
@@ -76,7 +76,7 @@ fn cancel_order_marks_cancelled() {
     client.set_operator(&merchant, &operator);
 
     let order_id = String::from_str(&env, "53");
-    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env]);
+    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env], &0);
 
     client.cancel_order(&merchant, &order_id);
 
@@ -109,7 +109,7 @@ fn create_order_splits_to_multiple_recipients() {
             amount: 6,
         },
     ];
-    client.create_order(&operator, &merchant, &order_id, &30, &splits);
+    client.create_order(&operator, &merchant, &order_id, &30, &splits, &0);
     client.pay(&payer, &order_id);
 
     assert_eq!(token.balance(&recipient_a) as i128, 4);
@@ -138,7 +138,7 @@ fn create_order_rejects_unauthorized_operator() {
     client.set_operator(&merchant, &operator);
 
     let order_id = String::from_str(&env, "101");
-    let result = client.try_create_order(&impostor, &merchant, &order_id, &10, &vec![&env]);
+    let result = client.try_create_order(&impostor, &merchant, &order_id, &10, &vec![&env], &0);
     assert_eq!(result, Err(Ok(contract_error(Error::NotAuthorized))));
 }
 
@@ -151,7 +151,7 @@ fn create_order_rejects_non_positive_amount() {
     client.set_operator(&merchant, &operator);
 
     let order_id = String::from_str(&env, "102");
-    let result = client.try_create_order(&operator, &merchant, &order_id, &0, &vec![&env]);
+    let result = client.try_create_order(&operator, &merchant, &order_id, &0, &vec![&env], &0);
     assert_eq!(result, Err(Ok(contract_error(Error::InvalidAmount))));
 }
 
@@ -172,7 +172,7 @@ fn create_order_rejects_splits_over_amount() {
             amount: 50,
         },
     ];
-    let result = client.try_create_order(&operator, &merchant, &order_id, &30, &splits);
+    let result = client.try_create_order(&operator, &merchant, &order_id, &30, &splits, &0);
     assert_eq!(result, Err(Ok(contract_error(Error::SplitsExceedAmount))));
 }
 
@@ -185,9 +185,9 @@ fn create_order_rejects_duplicate_id() {
     client.set_operator(&merchant, &operator);
 
     let order_id = String::from_str(&env, "104");
-    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env]);
+    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env], &0);
 
-    let result = client.try_create_order(&operator, &merchant, &order_id, &10, &vec![&env]);
+    let result = client.try_create_order(&operator, &merchant, &order_id, &10, &vec![&env], &0);
     assert_eq!(result, Err(Ok(contract_error(Error::OrderAlreadyExists))));
 }
 
@@ -212,7 +212,7 @@ fn pay_rejects_already_paid_order() {
     client.set_operator(&merchant, &operator);
 
     let order_id = String::from_str(&env, "105");
-    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env]);
+    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env], &0);
     client.pay(&payer, &order_id);
 
     let result = client.try_pay(&payer, &order_id);
@@ -239,7 +239,7 @@ fn cancel_order_rejects_unauthorized_caller() {
     client.set_operator(&merchant, &operator);
 
     let order_id = String::from_str(&env, "106");
-    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env]);
+    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env], &0);
 
     let result = client.try_cancel_order(&stranger, &order_id);
     assert_eq!(result, Err(Ok(contract_error(Error::NotAuthorized))));
@@ -256,7 +256,7 @@ fn cancel_order_rejects_already_paid_order() {
     client.set_operator(&merchant, &operator);
 
     let order_id = String::from_str(&env, "107");
-    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env]);
+    client.create_order(&operator, &merchant, &order_id, &10, &vec![&env], &0);
     client.pay(&payer, &order_id);
 
     let result = client.try_cancel_order(&merchant, &order_id);
@@ -270,4 +270,129 @@ fn get_order_rejects_unknown_order() {
     let order_id = String::from_str(&env, "997");
     let result = client.try_get_order(&order_id);
     assert_eq!(result, Err(Ok(contract_error(Error::OrderNotFound))));
+}
+
+#[test]
+fn pay_withholds_reserve_in_the_contract() {
+    let (env, client, token, _admin) = setup();
+
+    let merchant = Address::generate(&env);
+    let operator = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let payer = Address::generate(&env);
+
+    token.mint(&payer, &1_000);
+    client.set_operator(&merchant, &operator);
+
+    let order_id = String::from_str(&env, "200");
+    let splits = vec![
+        &env,
+        Split {
+            recipient: recipient.clone(),
+            amount: 5,
+        },
+    ];
+    // 100 total, 5 a un destinatario, 8 de reserva -- al comerciante le deben quedar 87.
+    client.create_order(&operator, &merchant, &order_id, &100, &splits, &8);
+    client.pay(&payer, &order_id);
+
+    assert_eq!(token.balance(&recipient) as i128, 5);
+    assert_eq!(token.balance(&merchant) as i128, 87);
+    assert_eq!(token.balance(&payer) as i128, 900);
+    assert_eq!(token.balance(&client.address) as i128, 8);
+    assert_eq!(client.get_reserve_balance(&merchant), 8);
+}
+
+#[test]
+fn pay_accumulates_reserve_across_multiple_orders() {
+    let (env, client, token, _admin) = setup();
+
+    let merchant = Address::generate(&env);
+    let operator = Address::generate(&env);
+    let payer = Address::generate(&env);
+
+    token.mint(&payer, &1_000);
+    client.set_operator(&merchant, &operator);
+
+    let first_id = String::from_str(&env, "201");
+    client.create_order(&operator, &merchant, &first_id, &50, &vec![&env], &4);
+    client.pay(&payer, &first_id);
+
+    let second_id = String::from_str(&env, "202");
+    client.create_order(&operator, &merchant, &second_id, &50, &vec![&env], &4);
+    client.pay(&payer, &second_id);
+
+    assert_eq!(client.get_reserve_balance(&merchant), 8);
+}
+
+#[test]
+fn create_order_rejects_splits_plus_reserve_over_amount() {
+    let (env, client, _token, _admin) = setup();
+
+    let merchant = Address::generate(&env);
+    let operator = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    client.set_operator(&merchant, &operator);
+
+    let order_id = String::from_str(&env, "203");
+    let splits = vec![
+        &env,
+        Split {
+            recipient,
+            amount: 25,
+        },
+    ];
+    // 25 de split + 10 de reserva = 35, supera el total de 30.
+    let result = client.try_create_order(&operator, &merchant, &order_id, &30, &splits, &10);
+    assert_eq!(result, Err(Ok(contract_error(Error::SplitsExceedAmount))));
+}
+
+#[test]
+fn withdraw_reserve_sends_funds_to_merchant() {
+    let (env, client, token, _admin) = setup();
+
+    let merchant = Address::generate(&env);
+    let operator = Address::generate(&env);
+    let payer = Address::generate(&env);
+
+    token.mint(&payer, &1_000);
+    client.set_operator(&merchant, &operator);
+
+    let order_id = String::from_str(&env, "204");
+    client.create_order(&operator, &merchant, &order_id, &50, &vec![&env], &8);
+    client.pay(&payer, &order_id);
+
+    let merchant_balance_before = token.balance(&merchant) as i128;
+
+    client.withdraw_reserve(&merchant, &8);
+
+    assert_eq!(token.balance(&merchant) as i128, merchant_balance_before + 8);
+    assert_eq!(token.balance(&client.address) as i128, 0);
+    assert_eq!(client.get_reserve_balance(&merchant), 0);
+}
+
+#[test]
+fn withdraw_reserve_rejects_insufficient_balance() {
+    let (env, client, _token, _admin) = setup();
+
+    let merchant = Address::generate(&env);
+    let result = client.try_withdraw_reserve(&merchant, &5);
+    assert_eq!(result, Err(Ok(contract_error(Error::InsufficientReserve))));
+}
+
+#[test]
+fn withdraw_reserve_rejects_non_positive_amount() {
+    let (env, client, _token, _admin) = setup();
+
+    let merchant = Address::generate(&env);
+    let result = client.try_withdraw_reserve(&merchant, &0);
+    assert_eq!(result, Err(Ok(contract_error(Error::InvalidAmount))));
+}
+
+#[test]
+fn get_reserve_balance_defaults_to_zero() {
+    let (env, client, _token, _admin) = setup();
+
+    let merchant = Address::generate(&env);
+    assert_eq!(client.get_reserve_balance(&merchant), 0);
 }

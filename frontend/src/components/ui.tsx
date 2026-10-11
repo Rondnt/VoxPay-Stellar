@@ -8,6 +8,7 @@ import {
   CircleCheck,
   UserRound,
   Store,
+  Landmark,
   X,
 } from "lucide-react";
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
@@ -191,12 +192,17 @@ export function Amount({
 export function Splits({
   splits,
   amount,
+  reserveAmount,
 }: {
   splits: Split[];
   amount: string | number;
+  reserveAmount?: string | number;
 }) {
+  const reserve = Number(reserveAmount ?? 0);
   const remainder =
-    Number(amount) - splits.reduce((total, s) => total + Number(s.amount), 0);
+    Number(amount) -
+    splits.reduce((total, s) => total + Number(s.amount), 0) -
+    reserve;
   return (
     <div className="splits">
       <p>Reparto del pago</p>
@@ -211,6 +217,17 @@ export function Splits({
           </span>
         </div>
       ))}
+      {reserve > 0 && (
+        <div className="split">
+          <span className="split-avatar">
+            <Landmark size={22} aria-hidden="true" />
+          </span>
+          <span>Reserva SUNAT</span>
+          <span>
+            <strong>{money(reserve)}</strong> <small>USDC</small>
+          </span>
+        </div>
+      )}
       <div className="split">
         <span className="split-avatar">
           <Store size={22} aria-hidden="true" />

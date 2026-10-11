@@ -42,8 +42,10 @@ export class NotificationsGateway implements OnGatewayConnection, OnModuleInit, 
 
   /** Misma resolución de token que la API REST (JWT propio o Firebase); el merchantId nunca se confía del cliente. */
   async handleConnection(socket: Socket): Promise<void> {
+    this.logger.log(`Socket connection attempt ${socket.id}, hasToken=${!!socket.handshake.auth?.token}`);
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) {
+      this.logger.warn(`Rejected socket ${socket.id}: no token in handshake`);
       socket.disconnect(true);
       return;
     }
@@ -52,6 +54,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnModuleInit, 
       const payload = await this.authService.resolveUser(token);
       const merchant = await this.merchants.findByTenant(payload.tenantId);
       void socket.join(merchant.id);
+      this.logger.log(`Socket ${socket.id} joined room ${merchant.id}`);
     } catch (error) {
       this.logger.warn(`Rejected socket connection: ${(error as Error).message}`);
       socket.disconnect(true);

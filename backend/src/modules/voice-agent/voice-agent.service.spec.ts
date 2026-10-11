@@ -13,6 +13,7 @@ const merchant: Merchant = {
   tenantId: 'tenant-1',
   stellarAddress: 'GMERCHANT',
   operatorAuthorized: true,
+  reservePercentage: 0,
   createdAt: '2026-01-01T00:00:00.000Z',
 };
 
@@ -88,5 +89,29 @@ describe('VoiceAgentService.confirm', () => {
     });
     expect(docRef.update).toHaveBeenCalledWith({ status: 'CONFIRMED' });
     expect(result).toBe(createdOrder);
+  });
+
+  it('applies the amount and splits overrides instead of the stored intent when given', async () => {
+    const { service, orders } = buildService({
+      merchantId: merchant.id,
+      intentJson: {
+        intent: 'create_order',
+        order_ref: '52',
+        amount: 30,
+        splits: [{ recipient_alias: 'José', amount: 3 }],
+      },
+    });
+    vi.mocked(orders.createFromIntent).mockResolvedValue({ id: 'order-1' } as Order);
+
+    await service.confirm('tenant-1', 'cmd-1', {
+      amount: 50,
+      splits: [{ recipientAlias: 'Ana', amount: 10 }],
+    });
+
+    expect(orders.createFromIntent).toHaveBeenCalledWith(merchant.id, {
+      orderRef: '52',
+      amount: 50,
+      splits: [{ recipientAlias: 'Ana', amount: 10 }],
+    });
   });
 });
