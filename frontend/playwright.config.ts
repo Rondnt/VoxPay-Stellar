@@ -34,6 +34,13 @@ export default defineConfig({
         API_URL: "http://localhost:3201",
         NEXT_PUBLIC_API_URL: "http://localhost:3201",
         NEXT_PUBLIC_NETWORK: "TESTNET",
+        // Process env wins over .env.local in Next.js. Without this override, a dev machine
+        // with the Firebase emulator configured for local work (see frontend/.env.local) leaks
+        // into this isolated suite: the login form's real signInWithEmailAndPassword() call
+        // targets 127.0.0.1:9099 instead of identitytoolkit.googleapis.com, so the test's
+        // page.route() mock on that domain never intercepts it and the call just fails.
+        NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST: "",
+        FIREBASE_AUTH_EMULATOR_HOST: "",
       },
     },
   ],
