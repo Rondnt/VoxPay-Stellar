@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UserRound, Info, Wallet, ShieldCheck, ArrowRight, Landmark } from "lucide-react";
-import { VoxiScene, type VoxiPose } from "@/components/voxi";
+import { Voxi, VoxiScene, type VoxiPose } from "@/components/voxi";
 import { useMerchant } from "@/components/merchant-shell";
 import {
   Button,
@@ -344,16 +344,21 @@ export function WalletView() {
         </div>
       </Card>
       {confirmed && (
-        <Card className="stack">
-          <div className="row">
-            <Landmark size={22} aria-hidden="true" />
-            <h2>Reserva automática</h2>
+        <Card className="stack wallet-reserve">
+          <div className="wallet-reserve-intro">
+            <div className="stack">
+              <div className="row">
+                <Landmark size={22} aria-hidden="true" />
+                <h2>Reserva automática</h2>
+              </div>
+              <p>
+                Aparta un % de cada cobro nuevo, bloqueado en el contrato hasta
+                que lo retires con esta misma wallet — útil para ir guardando el
+                pago a cuenta de SUNAT.
+              </p>
+            </div>
+            <Voxi pose="accountant" className="wallet-reserve-voxi" />
           </div>
-          <p>
-            Aparta un % de cada cobro nuevo, bloqueado en el contrato hasta
-            que lo retires con esta misma wallet — útil para ir guardando el
-            pago a cuenta de SUNAT.
-          </p>
           <div className="row">
             <input
               type="number"

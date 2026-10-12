@@ -27,7 +27,7 @@ export function AuthLayout({
               {register ? "Tu negocio, con VoxPay" : "Bienvenido a VoxPay"}
             </h2>
             <p>Accede a tu cuenta para gestionar tus cobros por voz.</p>
-            <div className="auth-welcome-art">
+            <div className={`auth-welcome-art${animateVoxi ? " auth-welcome-art-animated" : ""}`}>
               {!animateVoxi && (
                 <Image
                   src="/brand/v2/1f791.svg"
@@ -37,13 +37,15 @@ export function AuthLayout({
                   className="auth-desktop-backdrop"
                 />
               )}
-              <Image
-                src="/brand/v2/f854c.svg"
-                width={260}
-                height={208}
-                alt=""
-                className="auth-mobile-backdrop"
-              />
+              {!animateVoxi && (
+                <Image
+                  src="/brand/v2/f854c.svg"
+                  width={260}
+                  height={208}
+                  alt=""
+                  className="auth-mobile-backdrop"
+                />
+              )}
               {animateVoxi ? (
                 <LoginVoxi />
               ) : (

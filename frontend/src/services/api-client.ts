@@ -1,3 +1,5 @@
+import { responseErrorMessage } from "@/lib/api-error";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -42,17 +44,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       !window.location.pathname.includes("/login")
     )
       window.location.replace("/login?expired=1");
-    const message =
-      data && typeof data === "object" && "message" in data
-        ? (data as { message: unknown }).message
-        : undefined;
     throw new ApiError(
       response.status,
-      Array.isArray(message)
-        ? message.join(". ")
-        : typeof message === "string"
-          ? message
-          : "No se pudo completar la solicitud.",
+      responseErrorMessage(data) ?? "No se pudo completar la solicitud.",
     );
   }
   if (response.status === 204 && (init.method ?? "GET") !== "GET")

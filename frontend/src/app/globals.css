@@ -1490,6 +1490,18 @@ input[aria-invalid="true"] {
 .wallet-state .stack {
   gap: 20px;
 }
+.wallet-reserve-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 144px;
+  align-items: center;
+  gap: 24px;
+}
+.wallet-reserve-voxi {
+  width: 144px;
+  height: 144px;
+  -webkit-mask-image: radial-gradient(circle at center, #000 68%, transparent 100%);
+  mask-image: radial-gradient(circle at center, #000 68%, transparent 100%);
+}
 .payment-main {
   max-width: 1120px;
   width: calc(100% - 80px);
@@ -1834,6 +1846,10 @@ input[aria-invalid="true"] {
   .auth-welcome-art {
     height: 110px;
   }
+  .auth-welcome-art-animated {
+    height: 148px;
+    overflow: hidden;
+  }
   .auth-mobile-backdrop {
     display: block;
     position: absolute;
@@ -1852,9 +1868,16 @@ input[aria-invalid="true"] {
   }
   .auth-voxi-video {
     top: auto;
-    bottom: -40px;
-    width: 160px;
-    height: 160px;
+    bottom: -6px;
+    width: 180px;
+    height: auto;
+    aspect-ratio: 706 / 672;
+    border-radius: 0;
+  }
+  .auth-voxi-video video {
+    object-fit: cover;
+    -webkit-mask-image: none;
+    mask-image: none;
   }
   .login-card {
     gap: 12px;
@@ -2106,6 +2129,16 @@ input[aria-invalid="true"] {
   }
   .wallet-data {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .wallet-reserve-intro {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .wallet-reserve-voxi {
+    grid-row: 1;
+    justify-self: center;
+    width: 112px;
+    height: 112px;
   }
   .wallet-state {
     display: flex;

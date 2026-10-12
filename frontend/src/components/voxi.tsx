@@ -1,6 +1,6 @@
 import Image from "next/image";
 
-// Original transparent assets from the approved Figma screens.
+// Approved Voxi poses for the app.
 const poses = {
   listening: "2646c.png",
   greeting: "06f01.png",
@@ -12,6 +12,7 @@ const poses = {
   stopping: "8b210.png",
   authorizing: "7e86e.png",
   detective: "28375.png",
+  accountant: "voxi-sunat-accountant.png",
 } as const;
 
 export type VoxiPose = keyof typeof poses;

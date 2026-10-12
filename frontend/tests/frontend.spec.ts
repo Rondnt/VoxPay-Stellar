@@ -105,6 +105,7 @@ test("login Voxi plays continuously at 1.25x without sound on desktop and mobile
   await page.goto("/login");
   const animation = page.locator(".auth-voxi-video");
   const video = animation.locator("video");
+  await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.currentSrc)).toContain("/brand/v2/voxi-login.mp4");
   await expect(animation).toBeVisible();
   await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThan(0.1);
   expect(await video.evaluate((element: HTMLVideoElement) => ({
@@ -160,12 +161,23 @@ test("login Voxi plays continuously at 1.25x without sound on desktop and mobile
     await mobile.goto("http://localhost:3100/login");
     const mobileAnimation = mobile.locator(".auth-voxi-video");
     const mobileVideo = mobileAnimation.locator("video");
+    await expect.poll(() => mobileVideo.evaluate((element: HTMLVideoElement) => element.currentSrc)).toContain("/brand/v2/voxi-login-mobile.mp4");
+    await expect(mobileVideo).toHaveAttribute("poster", "/brand/v2/voxi-login-mobile-poster.png");
     await expect.poll(() => mobileVideo.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThan(0.1);
     expect(await mobileVideo.evaluate((element: HTMLVideoElement) => element.muted)).toBe(true);
     expect(await mobileVideo.evaluate((element: HTMLVideoElement) => element.playbackRate)).toBe(1.25);
     await mobile.getByLabel("Correo electrónico").focus();
     await expect.poll(() => mobileVideo.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false);
+    const mobileCard = await mobile.locator(".login-card").boundingBox();
+    const mobileArt = await mobile.locator(".auth-welcome-art").boundingBox();
+    expect(Math.abs(mobileArt!.y + mobileArt!.height - mobileCard!.y)).toBeLessThan(1);
+    expect(await mobile.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    expect(await mobile.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(844);
     await mobile.screenshot({ path: "test-results/login-voxi-mobile.png", animations: "disabled" });
+    await mobile.setViewportSize({ width: 1024, height: 900 });
+    await expect.poll(() => mobileVideo.evaluate((element: HTMLVideoElement) => element.currentSrc)).toContain("/brand/v2/voxi-login.mp4");
+    await expect(mobileVideo).toHaveAttribute("poster", "/brand/v2/voxi-login-blue-poster.png");
+    await expect.poll(() => mobileVideo.evaluate((element: HTMLVideoElement) => !element.paused && element.playbackRate === 1.25)).toBe(true);
     await mobile.goto("http://localhost:3100/register");
     await expect(mobile.locator(".auth-voxi-video")).toHaveCount(0);
   } finally {
@@ -631,6 +643,98 @@ test("frontend bridge forwards the existing merchant wallet registration contrac
   );
   expect(response.ok()).toBe(true);
   expect((await response.json()).stellarAddress).toBe(address);
+  const counts = await (await request.get(base + "/__test/counts")).json();
+  expect(counts.walletAttempts).toEqual([{ method: "PATCH", stellarAddress: address }]);
+  expect(counts.walletRegistrations).toBe(1);
+});
+
+test("wallet registration supports the published POST API without bypassing authentication or origin checks", async ({
+  page,
+  request,
+}) => {
+  const { address } = await (await request.get(base + "/__test/reset")).json();
+  await request.post(base + "/__test/wallet-config", { data: { method: "POST" } });
+  const path = "/api/backend/v1/merchants/wallet";
+  expect((await request.patch(path, {
+    headers: { Origin: "http://localhost:3100" },
+    data: { stellarAddress: address },
+  })).status()).toBe(401);
+  await login(page);
+  expect((await page.request.patch(path, {
+    headers: { Origin: "https://other.example" },
+    data: { stellarAddress: address },
+  })).status()).toBe(403);
+  expect((await (await request.get(base + "/__test/counts")).json()).walletAttempts).toEqual([]);
+  const response = await page.request.patch(path, {
+    headers: { Origin: "http://localhost:3100" },
+    data: { stellarAddress: address },
+  });
+  expect(response.ok()).toBe(true);
+  expect((await response.json()).stellarAddress).toBe(address);
+  const counts = await (await request.get(base + "/__test/counts")).json();
+  expect(counts.walletAttempts).toEqual([
+    { method: "PATCH", stellarAddress: address },
+    { method: "POST", stellarAddress: address },
+  ]);
+  expect(counts.walletRegistrations).toBe(1);
+});
+
+test("wallet registration never retries validation, authorization, missing merchant or server failures", async ({
+  page,
+  request,
+}) => {
+  const { address } = await (await request.get(base + "/__test/reset")).json();
+  await login(page);
+  for (const failure of [
+    { status: 400, message: "Invalid Stellar address" },
+    { status: 403, message: "Withdraw the reserve before changing wallets" },
+    { status: 404, message: "Merchant not found" },
+    { status: 409, message: "Wallet already linked" },
+    { status: 500, message: "Internal server error" },
+  ]) {
+    await request.post(base + "/__test/wallet-config", { data: { failure } });
+    const response = await page.request.patch("/api/backend/v1/merchants/wallet", {
+      headers: { Origin: "http://localhost:3100" },
+      data: { stellarAddress: address },
+    });
+    expect(response.status()).toBe(failure.status);
+    expect((await response.json()).message.message).toBe(failure.message);
+    const counts = await (await request.get(base + "/__test/counts")).json();
+    expect(counts.walletAttempts).toEqual([{ method: "PATCH", stellarAddress: address }]);
+    expect(counts.walletRegistrations).toBe(0);
+  }
+});
+
+test("nested API errors show the actual reason and preserve the form", async ({ page, request }) => {
+  const { address } = await (await request.get(base + "/__test/reset")).json();
+  await login(page);
+  await page.goto("/recipients");
+  await page.getByRole("button", { name: "Agregar destinatario" }).click();
+  await page.getByLabel("Alias", { exact: true }).fill("Pedro");
+  await page.getByLabel("Dirección pública de Stellar").fill(address);
+  const cases = [
+    {
+      body: { statusCode: 400, message: { message: "La wallet no está disponible.", error: "Bad Request" } },
+      expected: "La wallet no está disponible.",
+    },
+    {
+      body: { message: { message: ["Revisa el alias", "Revisa la dirección"] } },
+      expected: "Revisa el alias. Revisa la dirección",
+    },
+    { body: { message: "Revisa los datos." }, expected: "Revisa los datos." },
+    { body: { message: { error: "Bad Request" } }, expected: "No se pudo completar la solicitud." },
+  ];
+  let current = cases[0];
+  await page.route("**/api/backend/v1/recipients", (route) =>
+    route.fulfill({ status: 400, json: current.body }),
+  );
+  for (const scenario of cases) {
+    current = scenario;
+    await page.getByRole("button", { name: "Guardar destinatario" }).click();
+    await expect(page.getByText(scenario.expected, { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Alias", { exact: true })).toHaveValue("Pedro");
+    await expect(page.getByLabel("Dirección pública de Stellar")).toHaveValue(address);
+  }
 });
 
 test("microphone denial is recoverable and never creates an order", async ({
