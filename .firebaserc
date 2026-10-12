@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "demo-voxpay-local"
+    "default": "demo-voxpay-local",
+    "production": "voxpay-gj"
   }
 }

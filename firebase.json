@@ -17,5 +17,16 @@
       "host": "0.0.0.0",
       "port": 4000
     }
+  },
+  "apphosting": {
+    "backendId": "voxpay",
+    "rootDir": "./frontend",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "functions"
+    ]
   }
 }
