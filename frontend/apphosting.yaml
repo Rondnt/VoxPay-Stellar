@@ -8,7 +8,7 @@ env:
     availability:
       - BUILD
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: AIzaSyDhOd8lgscTA4D-4oKM5rJvmiDOoJyNqUs
+    secret: firebaseApiKey
     availability:
       - BUILD
   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
