@@ -39,7 +39,7 @@ El acceso requiere la configuración Firebase y una API de VoxPay disponible. Fi
 | /orders y /orders/ID | Búsqueda, filtros, detalle, reparto y acceso al QR. Voxi acompaña estados vacíos y errores.       |
 | /dashboard           | Total y cantidad de pagos del día UTC; conserva el último resumen ante errores.                   |
 | /recipients          | Crear, editar y eliminar contactos, validar alias y direcciones Stellar.                          |
-| /wallet              | Registrar la primera wallet del negocio y autorizar al operador con la wallet existente.          |
+| /wallet              | Registrar o cambiar la wallet del negocio, autorizar al operador, configurar el % de reserva automática para SUNAT, ver el saldo reservado, retirarlo y consultar el historial de retiros. |
 
 Desktop utiliza navegación lateral; móvil, menú desplegable. Los componentes y estados comparten los mismos tokens de color. El micrófono conserva su control visible junto a Voxi. La transcripción se muestra cuando llega la interpretación del servicio, sin simular texto en tiempo real.
 
@@ -53,7 +53,7 @@ El favicon usa el isotipo circular proporcionado por el equipo: public/brand/v2/
 
 ## Compatibilidad con la API
 
-Esta versión cambia el frontend y conserva los contratos de la versión existente. El navegador llama a /api/backend; la pasarela de Next permite las rutas utilizadas, verifica el origen de las escrituras y envía la cookie HttpOnly al backend. El registro de wallet utiliza PATCH /v1/merchants/wallet. Si la API responde explícitamente que esa ruta PATCH no existe, la pasarela utiliza POST en la misma ruta, compatible con la API publicada. Conserva la autenticación y el cuerpo stellarAddress; no reintenta errores de validación, permisos ni operaciones fallidas.
+Esta versión cambia el frontend y conserva los contratos de la versión existente. El navegador llama a /api/backend; la pasarela de Next permite las rutas utilizadas, verifica el origen de las escrituras y envía la cookie HttpOnly al backend. El registro y el cambio posterior de wallet usan el mismo PATCH /v1/merchants/wallet. Si la API responde explícitamente que esa ruta PATCH no existe, la pasarela utiliza POST en la misma ruta, compatible con la API publicada. Conserva la autenticación y el cuerpo stellarAddress; no reintenta errores de validación, permisos ni operaciones fallidas. La reserva automática para SUNAT usa PATCH /v1/merchants/reserve (configurar %), GET /v1/merchants/reserve/balance, POST /v1/merchants/reserve/withdraw/(tx|submit) y GET /v1/merchants/reserve/withdrawals (historial).
 
 No se modificaron servicios, contratos Stellar ni datos del backend. La UI toma importes, repartos y estados de la API. No incorpora cobros locales, liquidación en soles, gráficos nuevos ni un chatbot sin un servicio que los respalde.
 
