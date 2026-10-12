@@ -25,9 +25,10 @@ class Settings(BaseSettings):
     llm_context_size: int = 2048
 
     # Voz neuronal gratuita de Microsoft Edge (sin API key, mismo canal que "leer en voz alta" del
-    # navegador). es-AR-ElenaNeural elegida a pedido del usuario tras comparar voces en el proyecto
-    # Raven (D:\Projects\Raven\tests\fixtures\voice_compare_edge_*.mp3).
-    tts_voice: str = "es-AR-ElenaNeural"
+    # navegador). es-PE-AlexNeural (masculina, Perú) elegida a pedido del usuario tras comparar
+    # voces en el proyecto Raven (D:\Projects\Raven\tests\fixtures\voice_compare_edge_*.mp3);
+    # reemplaza a la femenina es-AR-ElenaNeural usada antes.
+    tts_voice: str = "es-PE-AlexNeural"
     tts_rate: str = "+0%"
 
 

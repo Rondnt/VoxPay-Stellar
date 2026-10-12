@@ -50,6 +50,44 @@ type Stage =
   | "qr"
   | "paid"
   | "cancelled";
+
+/** Espejo de buildConfirmationText del backend (voice-agent.processor.ts) -- misma plantilla fija,
+ * para que la confirmación hablada diga lo mismo tanto si la genera el servidor (Edge TTS) como si
+ * la lee el navegador por el respaldo de speakConfirmation. */
+function confirmationText(intent: ConfirmableIntent | null): string {
+  if (!intent) {
+    return "No entendí bien el cobro. Repetí el importe, el pedido y a quién repartir, por favor.";
+  }
+  const splitsText = intent.splits.length
+    ? ` repartiendo ${intent.splits
+        .map((s) => `${s.amount} USDC a ${s.recipientAlias}`)
+        .join(" y ")}`
+    : "";
+  return `Vas a cobrar ${intent.amount} USDC por el pedido ${intent.orderRef}${splitsText}. Confirmá para continuar.`;
+}
+
+/** Respaldo cuando el TTS del servidor no está disponible (ej. Edge TTS bloqueado) -- usa la
+ * síntesis de voz nativa del navegador, que no depende de ningún servicio externo. Prefiere una voz
+ * masculina en español si el sistema tiene alguna instalada. */
+function speakConfirmation(text: string) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const synth = window.speechSynthesis;
+  const speak = () => {
+    const voices = synth.getVoices();
+    const spanishVoices = voices.filter((v) => v.lang.toLowerCase().startsWith("es"));
+    const voice =
+      spanishVoices.find((v) => /pablo|raul|jorge|diego|carlos|alex/i.test(v.name)) ??
+      spanishVoices[0];
+    const utterance = new SpeechSynthesisUtterance(text);
+    if (voice) utterance.voice = voice;
+    utterance.lang = voice?.lang ?? "es-PE";
+    synth.cancel();
+    synth.speak(utterance);
+  };
+  if (synth.getVoices().length > 0) speak();
+  else synth.addEventListener("voiceschanged", speak, { once: true });
+}
+
 export function PosView({ initialOrderId }: { initialOrderId?: string }) {
   const { merchant } = useMerchant();
   const [stage, setStage] = useState<Stage>(
@@ -133,13 +171,17 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
     }
   }, [merchant]);
   const acceptConfirmation = useCallback((payload: VoiceConfirmation) => {
+    const parsed =
+      payload.status === "UNKNOWN" ? null : parseIntent(payload.intent);
     if (payload.audioBase64) {
       void new Audio(`data:audio/mpeg;base64,${payload.audioBase64}`)
         .play()
         .catch(() => {});
+    } else {
+      // Respaldo cuando el TTS del servidor (Edge TTS) no está disponible -- usa la síntesis de voz
+      // nativa del navegador en vez de dejar la confirmación muda.
+      speakConfirmation(confirmationText(parsed));
     }
-    const parsed =
-      payload.status === "UNKNOWN" ? null : parseIntent(payload.intent);
     setTranscript(payload.transcript || "");
     if (!parsed) {
       setIntent(null);
