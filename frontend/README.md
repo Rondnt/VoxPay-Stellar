@@ -71,7 +71,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Playwright levanta una API exclusivamente de prueba en 3101 y Next.js en 3100. Ambos puertos deben estar libres. Los fixtures no se importan desde la aplicación y no modifican el backend real.
+Playwright levanta una API exclusivamente de prueba en 3201 y Next.js en 3200. Ambos puertos deben estar libres. Los fixtures no se importan desde la aplicación y no modifican el backend real.
 
 Las pruebas de flujos comerciales obtienen una cookie HttpOnly mediante la pasarela de compatibilidad existente. La validación y los errores del formulario Firebase usan respuestas de red simuladas; no necesitan usuarios reales ni hacen un login Google. Se comprueban voz → confirmación → QR → notificación de pago, CRUD, filtros, métricas, estados de error, navegación móvil, carga de imágenes y ausencia de desbordamiento. Las capturas quedan en test-results.
 

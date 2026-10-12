@@ -61,7 +61,7 @@ function reset() {
 }
 reset();
 const server = createServer(async (req, res) => {
-  const path = new URL(req.url, "http://localhost:3101").pathname;
+  const path = new URL(req.url, "http://localhost:3201").pathname;
   const send = (status, data) => {
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(data === undefined ? undefined : JSON.stringify(data));
@@ -195,6 +195,6 @@ const server = createServer(async (req, res) => {
   }
   send(404, { message: "Not found" });
 });
-const io = new Server(server, { cors: { origin: "http://localhost:3100" } });
+const io = new Server(server, { cors: { origin: "http://localhost:3200" } });
 io.of("/notifications").on("connection", () => {});
-server.listen(3101, "127.0.0.1");
+server.listen(3201, "127.0.0.1");

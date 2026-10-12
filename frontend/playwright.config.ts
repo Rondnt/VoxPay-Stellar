@@ -8,7 +8,7 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: "list",
   use: {
-    baseURL: "http://localhost:3100",
+    baseURL: "http://localhost:3200",
     viewport: { width: 1440, height: 1024 },
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
@@ -22,17 +22,17 @@ export default defineConfig({
   webServer: [
     {
       command: "node tests/mock-api.mjs",
-      url: "http://localhost:3101/health",
+      url: "http://localhost:3201/health",
       reuseExistingServer: false,
     },
     {
-      command: "npm run dev -- --port 3100",
-      url: "http://localhost:3100/login",
+      command: "npm run dev -- --port 3200",
+      url: "http://localhost:3200/login",
       timeout: 180_000,
       reuseExistingServer: false,
       env: {
-        API_URL: "http://localhost:3101",
-        NEXT_PUBLIC_API_URL: "http://localhost:3101",
+        API_URL: "http://localhost:3201",
+        NEXT_PUBLIC_API_URL: "http://localhost:3201",
         NEXT_PUBLIC_NETWORK: "TESTNET",
       },
     },

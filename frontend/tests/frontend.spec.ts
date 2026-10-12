@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { parseIntent, explorerUrl, money } from "../src/lib/domain";
-const base = "http://localhost:3101";
+const base = "http://localhost:3201";
 
 test("removed endpoints and obsolete sessions cannot bypass authentication", async ({
   page,
@@ -8,19 +8,19 @@ test("removed endpoints and obsolete sessions cannot bypass authentication", asy
   request,
 }) => {
   const entry = await request.post("/api/local-preview/session", {
-    headers: { Origin: "http://localhost:3100" },
+    headers: { Origin: "http://localhost:3200" },
   });
   expect(entry.status()).toBe(404);
   const payment = await request.post(
     "/api/backend/v1/public/orders/order-10/preview-pay",
-    { headers: { Origin: "http://localhost:3100" } },
+    { headers: { Origin: "http://localhost:3200" } },
   );
   expect(payment.status()).toBe(404);
   await context.addCookies([
     {
       name: "voxpay_session",
       value: "voxpay-local-preview",
-      url: "http://localhost:3100",
+      url: "http://localhost:3200",
       httpOnly: true,
     },
   ]);
@@ -39,7 +39,7 @@ test("removed endpoints and obsolete sessions cannot bypass authentication", asy
     {
       name: "voxpay_session",
       value: `header.${payload}.signature`,
-      url: "http://localhost:3100",
+      url: "http://localhost:3200",
       httpOnly: true,
     },
   ]);
@@ -53,7 +53,7 @@ async function login(page: Page) {
   // The existing compatibility bridge sets the real HttpOnly session cookie.
   const response = await page.request.post("/api/backend/v1/auth/login", {
     data: { email: "negocio@example.com", password: "password123" },
-    headers: { Origin: "http://localhost:3100" },
+    headers: { Origin: "http://localhost:3200" },
   });
   expect(response.ok()).toBe(true);
   await page.goto("/pos");
@@ -157,7 +157,7 @@ test("login Voxi plays continuously at 1.25x without sound on desktop and mobile
   });
   try {
     const mobile = await context.newPage();
-    await mobile.goto("http://localhost:3100/login");
+    await mobile.goto("http://localhost:3200/login");
     const mobileAnimation = mobile.locator(".auth-voxi-video");
     const mobileVideo = mobileAnimation.locator("video");
     await expect.poll(() => mobileVideo.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThan(0.1);
@@ -166,7 +166,7 @@ test("login Voxi plays continuously at 1.25x without sound on desktop and mobile
     await mobile.getByLabel("Correo electrónico").focus();
     await expect.poll(() => mobileVideo.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false);
     await mobile.screenshot({ path: "test-results/login-voxi-mobile.png", animations: "disabled" });
-    await mobile.goto("http://localhost:3100/register");
+    await mobile.goto("http://localhost:3200/register");
     await expect(mobile.locator(".auth-voxi-video")).toHaveCount(0);
   } finally {
     await context.close();
@@ -413,7 +413,7 @@ test("voice records, confirms once, generates real payment URL QR and receives p
   ).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Abrir enlace de pago" }),
-  ).toHaveAttribute("href", "http://localhost:3100/pay/order-10");
+  ).toHaveAttribute("href", "http://localhost:3200/pay/order-10");
   expect(
     (await (await request.get(base + "/__test/counts")).json()).confirms,
   ).toBe(1);
@@ -615,7 +615,7 @@ test("frontend bridge forwards the existing merchant wallet registration contrac
   expect(
     (
       await request.patch("/api/backend/v1/merchants/wallet", {
-        headers: { Origin: "http://localhost:3100" },
+        headers: { Origin: "http://localhost:3200" },
         data: { stellarAddress: "G" },
       })
     ).status(),
@@ -625,7 +625,7 @@ test("frontend bridge forwards the existing merchant wallet registration contrac
   const response = await page.request.patch(
     "/api/backend/v1/merchants/wallet",
     {
-      headers: { Origin: "http://localhost:3100" },
+      headers: { Origin: "http://localhost:3200" },
       data: { stellarAddress: address },
     },
   );
