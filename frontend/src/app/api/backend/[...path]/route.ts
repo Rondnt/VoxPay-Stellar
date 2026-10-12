@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyFirebaseToken } from "@/lib/firebase-server";
 import { isSameOriginRequest } from "@/lib/same-origin";
+import { responseErrorMessage } from "@/lib/api-error";
 
 // ─── Helpers para tokens Firebase ─────────────────────────────────────────
 /** Firebase ID tokens son JWTs firmados por Google (RS256, iss = securetoken.google.com) */
@@ -114,15 +115,39 @@ async function handler(
       process.env.NEXT_PUBLIC_API_URL ??
       "http://localhost:3001"
     ).replace(/\/$/, "");
-    const upstream = await fetch(`${base}/${path}`, {
-      method,
-      headers,
-      body,
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(40_000),
-    });
-    const text = await upstream.text();
+    const signal = AbortSignal.timeout(40_000);
+    const forward = (upstreamMethod: string) =>
+      fetch(`${base}/${path}`, {
+        method: upstreamMethod,
+        headers,
+        body,
+        cache: "no-store",
+        redirect: "error",
+        signal,
+      });
+    let upstream = await forward(method);
+    let text = await upstream.text();
+    // The published API uses POST; the repository's newer API uses PATCH.
+    // Only retry when PATCH has no handler, never after a wallet operation fails.
+    if (
+      path === "v1/merchants/wallet" &&
+      method === "PATCH" &&
+      upstream.status === 404
+    ) {
+      let errorBody: unknown;
+      try {
+        errorBody = JSON.parse(text);
+      } catch {
+        errorBody = undefined;
+      }
+      if (
+        responseErrorMessage(errorBody) ===
+        "Cannot PATCH /v1/merchants/wallet"
+      ) {
+        upstream = await forward("POST");
+        text = await upstream.text();
+      }
+    }
     if (firebaseSession && upstream.status === 401) {
       return NextResponse.json(
         {

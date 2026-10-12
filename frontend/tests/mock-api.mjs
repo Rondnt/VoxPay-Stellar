@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import { Keypair } from "@stellar/stellar-sdk";
 const address = Keypair.random().publicKey();
 let recipients, orders, failAnalytics, confirms;
+let walletMethod, walletFailure, walletAttempts, walletRegistrations;
 const hash = "a".repeat(64);
 function reset() {
   recipients = [
@@ -58,6 +59,10 @@ function reset() {
   ];
   failAnalytics = false;
   confirms = 0;
+  walletMethod = "PATCH";
+  walletFailure = null;
+  walletAttempts = [];
+  walletRegistrations = 0;
 }
 reset();
 const server = createServer(async (req, res) => {
@@ -75,7 +80,18 @@ const server = createServer(async (req, res) => {
     failAnalytics = true;
     return send(200, {});
   }
-  if (path === "/__test/counts") return send(200, { confirms });
+  if (path === "/__test/wallet-config") {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    walletMethod = body.method ?? "PATCH";
+    walletFailure = body.failure ?? null;
+    walletAttempts = [];
+    walletRegistrations = 0;
+    return send(200, {});
+  }
+  if (path === "/__test/counts")
+    return send(200, { confirms, walletAttempts, walletRegistrations });
   if (path === "/__test/pay") {
     orders[0].status = "PAID";
     orders[0].payTxHash = hash;
@@ -106,10 +122,26 @@ const server = createServer(async (req, res) => {
       stellarAddress: address,
       operatorAuthorized: true,
     });
-  if (path === "/v1/merchants/wallet" && req.method === "PATCH") {
+  if (path === "/v1/merchants/wallet") {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    walletAttempts.push({ method: req.method, stellarAddress: body.stellarAddress });
+    if (req.method !== walletMethod)
+      return send(404, {
+        statusCode: 404,
+        message: {
+          message: `Cannot ${req.method} /v1/merchants/wallet`,
+          error: "Not Found",
+          statusCode: 404,
+        },
+      });
+    if (walletFailure)
+      return send(walletFailure.status, {
+        statusCode: walletFailure.status,
+        message: { message: walletFailure.message, statusCode: walletFailure.status },
+      });
+    walletRegistrations++;
     return send(200, {
       id: "merchant-test",
       tenantId: "tenant-test",

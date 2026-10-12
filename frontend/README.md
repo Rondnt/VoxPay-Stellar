@@ -53,7 +53,7 @@ El favicon usa el isotipo circular proporcionado por el equipo: public/brand/v2/
 
 ## Compatibilidad con la API
 
-Esta versión cambia el frontend y conserva los contratos de la versión existente. El navegador llama a /api/backend; la pasarela de Next permite las rutas utilizadas, verifica el origen de las escrituras y envía la cookie HttpOnly al backend. También admite PATCH /v1/merchants/wallet, que ya existe en el backend y utiliza el registro de la primera wallet.
+Esta versión cambia el frontend y conserva los contratos de la versión existente. El navegador llama a /api/backend; la pasarela de Next permite las rutas utilizadas, verifica el origen de las escrituras y envía la cookie HttpOnly al backend. El registro de wallet utiliza PATCH /v1/merchants/wallet. Si la API responde explícitamente que esa ruta PATCH no existe, la pasarela utiliza POST en la misma ruta, compatible con la API publicada. Conserva la autenticación y el cuerpo stellarAddress; no reintenta errores de validación, permisos ni operaciones fallidas.
 
 No se modificaron servicios, contratos Stellar ni datos del backend. La UI toma importes, repartos y estados de la API. No incorpora cobros locales, liquidación en soles, gráficos nuevos ni un chatbot sin un servicio que los respalde.
 
