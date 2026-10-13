@@ -16,6 +16,7 @@ npm run dev
 Abre [localhost:3000](http://localhost:3000). Configura las variables de tu proyecto en .env.local; no reemplaces una configuración existente.
 
 - API_URL: backend accesible desde el servidor Next.js.
+- VOXPAY_APP_ORIGIN: origen público HTTPS del frontend detrás de un proxy, configurado en apphosting.yaml durante la ejecución. La sesión y las escrituras solo aceptan ese origen; déjalo sin definir para desarrollo local o LAN.
 - NEXT_PUBLIC_API_URL: URL del backend para Socket.IO en el navegador. Desde un teléfono debe ser una dirección accesible, no localhost del teléfono.
 - NEXT*PUBLIC_FIREBASE*\*: configuración web del proyecto Firebase, necesaria para correo/contraseña, registro, Google y recuperación de acceso. La cookie de sesión se valida con Firebase Admin en el servidor.
 - Para usar Firebase Auth Emulator, configura las dos variables de emulador de .env.example. Déjalas sin definir para usar Firebase real.

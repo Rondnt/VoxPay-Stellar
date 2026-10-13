@@ -1,4 +1,8 @@
 env:
+  - variable: VOXPAY_APP_ORIGIN
+    value: https://voxpay--voxpay-gj.us-central1.hosted.app
+    availability:
+      - RUNTIME
   - variable: NEXT_PUBLIC_API_URL
     value: https://voxpay-api-chxqzoidha-uc.a.run.app
     availability:

@@ -1,17 +1,18 @@
 import type { NextRequest } from "next/server";
 
-/**
- * `request.nextUrl.origin` no refleja el host real de la conexión en el dev server de Next —
- * siempre resuelve a "localhost" aunque se entre por otra IP (LAN, para probar desde el celular),
- * lo que hace que cualquier chequeo de same-origin contra ese valor falle en falso. Comparamos el
- * header `Origin` contra el header `Host` real de la request en su lugar.
- */
+// App Hosting forwards the public domain to an internal host. Use the configured
+// public origin in production; compare Host directly for local/LAN development.
+// Forwarded headers are not trusted as an origin allowlist.
 export function isSameOriginRequest(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
   if (!origin || !host) return false;
   try {
-    return new URL(origin).host === host;
+    const supplied = new URL(origin);
+    if (origin !== supplied.origin) return false;
+    const publicOrigin = process.env.VOXPAY_APP_ORIGIN;
+    if (publicOrigin) return supplied.origin === new URL(publicOrigin).origin;
+    return supplied.host === host;
   } catch {
     return false;
   }

@@ -1,6 +1,36 @@
 import { test, expect, type Page } from "@playwright/test";
 import { parseIntent, explorerUrl, money } from "../src/lib/domain";
+import { NextRequest } from "next/server";
+import { isSameOriginRequest } from "../src/lib/same-origin";
 const base = "http://localhost:3201";
+
+test("session origin accepts the public App Hosting domain and rejects spoofed origins", () => {
+  const publicOrigin = "https://voxpay--voxpay-gj.us-central1.hosted.app";
+  const previous = process.env.VOXPAY_APP_ORIGIN;
+  const request = (origin?: string, host = "internal.run.app", forwardedHost?: string) => {
+    const headers = new Headers({ host });
+    if (origin !== undefined) headers.set("origin", origin);
+    if (forwardedHost) headers.set("x-forwarded-host", forwardedHost);
+    return new NextRequest("http://internal.run.app/api/firebase-session", { headers });
+  };
+  try {
+    process.env.VOXPAY_APP_ORIGIN = publicOrigin;
+    expect(isSameOriginRequest(request(publicOrigin))).toBe(true);
+    for (const origin of [undefined, "null", "https://attacker.example", "http://voxpay--voxpay-gj.us-central1.hosted.app", publicOrigin + ".attacker.example", publicOrigin + "/login"]) {
+      expect(isSameOriginRequest(request(origin, "internal.run.app", publicOrigin.slice(8)))).toBe(false);
+    }
+    expect(isSameOriginRequest(request("https://internal.run.app"))).toBe(false);
+    process.env.VOXPAY_APP_ORIGIN = "not a URL";
+    expect(isSameOriginRequest(request(publicOrigin))).toBe(false);
+    delete process.env.VOXPAY_APP_ORIGIN;
+    expect(isSameOriginRequest(request("http://localhost:3200", "localhost:3200"))).toBe(true);
+    expect(isSameOriginRequest(request("http://192.168.18.62:3000", "192.168.18.62:3000"))).toBe(true);
+    expect(isSameOriginRequest(request("https://attacker.example", "localhost:3200"))).toBe(false);
+  } finally {
+    if (previous === undefined) delete process.env.VOXPAY_APP_ORIGIN;
+    else process.env.VOXPAY_APP_ORIGIN = previous;
+  }
+});
 
 test("removed endpoints and obsolete sessions cannot bypass authentication", async ({
   page,
