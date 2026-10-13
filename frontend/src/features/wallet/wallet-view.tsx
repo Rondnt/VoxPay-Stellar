@@ -12,7 +12,7 @@ import {
   PageHeading,
   TransactionLink,
 } from "@/components/ui";
-import { apiClient, errorMessage } from "@/services/api-client";
+import { apiClient, ApiError, errorMessage } from "@/services/api-client";
 import { formatDate, money, shortAddress } from "@/lib/domain";
 import type { Merchant, ReserveWithdrawal } from "@/types/domain";
 
@@ -106,7 +106,13 @@ export function WalletView() {
       await refresh();
       setReserveSaved(true);
     } catch (err) {
-      setReserveFailure(errorMessage(err));
+      setReserveFailure(
+        err instanceof ApiError &&
+          err.status === 404 &&
+          err.message === "Cannot PATCH /v1/merchants/reserve"
+          ? "La reserva para SUNAT todavía no está habilitada en el servidor. El porcentaje no se guardó."
+          : errorMessage(err),
+      );
     } finally {
       setSavingReserve(false);
       reserveLocked.current = false;

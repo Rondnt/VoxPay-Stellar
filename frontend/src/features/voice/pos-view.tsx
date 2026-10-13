@@ -848,9 +848,7 @@ export function PosView({ initialOrderId }: { initialOrderId?: string }) {
                     ? "Preparando tu instrucción…"
                     : transcript
                       ? "Toca para volver a grabar"
-                      : wakeWordEnabled
-                        ? "Toca para hablar o decí «Voxy»"
-                        : "Toca para hablar"}
+                      : "Toca para hablar o di «Voxy»"}
               </span>
             </div>
             <div className="transcript" aria-live="polite">
